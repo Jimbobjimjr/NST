@@ -14,7 +14,7 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
   const gas = makeGas(SITE + '/apps-script/Code.gs');
   gas.ctx.setup();
-  [['bracken-1', 'Sam (Bracken rep)', 'rep', 'bracken'], ['braylong-1', 'Kit (Braylong rep)', 'rep', 'braylong'], ['lead-1', 'Brett', 'lead', 'all']].forEach(r => gas.sheets.Reps.appendRow([...r, true]));
+  [['bracken-1', 'Sam (Bracken rep)', 'rep', 'bracken'], ['braylong-1', 'Kit (Braylong rep)', 'rep', 'braylong'], ['lead-1', 'Brett', 'lead', 'all'], ['nst-1', 'Andrew', 'nst', 'all']].forEach(r => gas.sheets.Reps.appendRow([...r, true]));
   const post = o => gas.post(JSON.stringify(o));
   // Example story (made up, not canon). Two entries saved before turns existed: each is its own turn.
   post({ action: 'saveEvent', code: 'lead-1', event: { id: 'ev-a', title: 'Thorns and Embers', when: 'Sep', chapter: 'bracken', visibility: 'public', order: 1, changes: [{ type: 'set', evil: 'wild', region: 'bracken', tier: 2 }] } });
@@ -50,8 +50,20 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   p = await open(); await signIn(p, 'lead-1');
   check(await p.locator('#share-btn').isVisible(), 'the NST Lead sees the Embed button');
   await p.click('#tab-log'); await sleep(300);
-  await p.click('.turnbox summary'); await p.fill('#turn-label', '2026'); await p.click('#turn-open'); await sleep(800);
-  check(/Year 4 · 2026/.test(await p.locator('.turnbox').textContent()), 'the current turn is turn 4, November 2026');
+  await p.click('#turn-open'); await sleep(800);
+  check(/Year 4/.test(await p.locator('.turnbox b').textContent()), 'the current year is year 4');
+  // The NST Lead names the years
+  await p.click('.turnbox summary');
+  check(await p.locator('#turn-label').inputValue() === '' && await p.locator('#turn-pick').inputValue() === '3', 'the name box starts on the current year, unnamed');
+  await p.fill('#turn-label', '2026'); await p.click('#turn-rename'); await sleep(800);
+  check(/^2026$/.test(await p.locator('.turnbox b').textContent()), 'the current year now reads 2026', await p.locator('.turnbox b').textContent());
+  await p.click('.turnbox summary'); await p.selectOption('#turn-pick', { index: 0 });
+  await p.fill('#turn-label', 'Legacy Content 2023'); await p.locator('.turnbox').screenshot({ path: OUT + 't0-name-years-open.png' }); await p.click('#turn-rename'); await sleep(800);
+  check(await p.locator('.turnhead', { hasText: 'Legacy Content 2023' }).count() === 1 && await p.locator('.turnhead', { hasText: 'Year 1' }).count() === 0, 'the first year is renamed Legacy Content 2023');
+  await p.locator('.turnbox').screenshot({ path: OUT + 't0-name-years.png' });
+  await p.close();
+  p = await open(); await signIn(p, 'nst-1'); await p.click('#tab-log'); await sleep(300);
+  check(await p.locator('#turn-open').count() === 1 && await p.locator('#turn-rename').count() === 0, 'the NST Team can start a year but only the NST Lead names them');
   check(!post({ action: 'saveSetting', code: 'bracken-1', key: 'turns', value: { open: 99 } }).ok, 'a rep cannot open a turn');
   await p.close();
 
@@ -63,9 +75,9 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
 
   // 4. A player sees one national step with both entries
   p = await open();
-  check(/^Year 4 of 4\./.test(await sub(p)), 'the national count only went up by one turn', await sub(p));
+  check(/^2026 \(4 of 4\)\./.test(await sub(p)), 'the national count only went up by one turn, under its name', await sub(p));
   const now = await p.locator('#tl-now').textContent();
-  check(/Year 4 · 2026/.test(now) && /2 entries this year/.test(now) && /The thorn wall holds/.test(now) && /Drums in the north pass/.test(now), 'the timeline shows both entries in the turn');
+  check(/2026/.test(now) && !/Year 4/.test(now) && /2 entries this year/.test(now) && /The thorn wall holds/.test(now) && /Drums in the north pass/.test(now), 'the timeline shows both entries in the turn');
   check(await p.locator('#ticks button').count() === 4, 'four ticks on the timeline');
   await p.locator('.timeline').screenshot({ path: OUT + 't1-turn-timeline.png' });
   const tok = await p.locator('.tok[data-evil="pale"][data-region="braylong"]').count();
@@ -97,7 +109,7 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   await p.locator('.ev', { hasText: 'Drums in the north pass' }).locator('[data-edit]').click(); await sleep(400);
   await p.selectOption('#d-turn', '2'); await p.click('#d-save'); await sleep(900);
   check(gas.get({ action: 'load' }).events.find(e => e.id === 'ev-d').turn === 2, 'the NST Team moves an entry to an earlier turn');
-  check(/1 entr/.test(await p.locator('.turnhead', { hasText: 'Year 4 · 2026' }).textContent()), 'the November turn now has one entry');
+  check(/1 entr/.test(await p.locator('.turnhead', { hasText: '2026' }).textContent()), 'the November turn now has one entry');
   check(p.errs.length === 0, 'no page errors for the lead', p.errs);
   await p.close();
 

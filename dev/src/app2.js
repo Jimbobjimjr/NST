@@ -436,7 +436,7 @@ const TABS = ["threats", "region", "log", "overview", "dispatches", "calendar", 
 function renderSubStep() {
   const n = TURNS.length, ti = turnIndexOf(S.idx);
   const rs = S.selected && R[S.selected]?.kind === "chapter" ? regionSteps(S.selected) : null, rk = rs ? rs.filter(i => i <= S.idx).length : 0;
-  $("sub-step").textContent = n ? (S.draft && S.draft.changes.length ? "Draft preview." : `Year ${turnNo(TURNS[ti].key)} of ${turnNo(TURNS[n - 1].key)}.${rs && rs.length ? ` ${R[S.selected].name}: beat ${rk} of ${rs.length}.` : ""}`) : "";
+  $("sub-step").textContent = n ? (S.draft && S.draft.changes.length ? "Draft preview." : `${turnLabel(TURNS[ti].key) ? `${turnLabel(TURNS[ti].key)} (${turnNo(TURNS[ti].key)} of ${turnNo(TURNS[n - 1].key)})` : `Year ${turnNo(TURNS[ti].key)} of ${turnNo(TURNS[n - 1].key)}`}.${rs && rs.length ? ` ${R[S.selected].name}: beat ${rk} of ${rs.length}.` : ""}`) : "";
 }
 function renderSide() {
   renderSubStep();
@@ -807,8 +807,11 @@ function renderLog() {
   const ok = openTurnKey();
   html += `<div class="turnbox"><div><span class="lbl">Current year</span><br><b>${esc(turnName(ok))}</b></div>
     <div class="note">New entries go into this year. ${isNST() ? "Start a new year when the national story moves on." : "The NST Team starts each new year."}</div>
-    ${isNST() && !S.usingFallback ? `<details class="dset"><summary>Start a new year or rename this one</summary><label class="lbl" for="turn-label">Year name</label><input id="turn-label" placeholder="e.g. 2026 or The Year of Ash">
-      <div class="btnrow"><button type="button" class="btn primary" id="turn-open">Start year ${allTurnKeys().length + 1}</button><button type="button" class="btn" id="turn-rename">Rename year ${turnNo(ok)}</button></div></details>` : ""}</div>`;
+    ${isNST() && !S.usingFallback ? `<div class="btnrow"><button type="button" class="btn primary" id="turn-open">Start year ${allTurnKeys().length + 1}</button></div>` : ""}
+    ${isLead() && !S.usingFallback ? `<details class="dset"><summary>Name the years</summary><div class="note">Replace "Year 1", "Year 2" and so on with your own names, such as Legacy Content 2023 or 2026. Leave the name blank to go back to the number.</div>
+      <label class="lbl" for="turn-pick">Which year</label><select id="turn-pick">${allTurnKeys().map(k => opt(k, turnName(k) + (k === ok ? " (current)" : ""), ok)).join("")}</select>
+      <label class="lbl" for="turn-label">Name</label><input id="turn-label" value="${esc(turnLabel(ok))}" placeholder="Year ${turnNo(ok)}">
+      <div class="btnrow"><button type="button" class="btn" id="turn-rename">Save name</button></div></details>` : ""}</div>`;
   const chs = [...new Set(EV.map(e => e.chapter).filter(c => R[c]))];
   html += `<div class="field"><label class="lbl" for="log-filter">Whose story</label><select id="log-filter">${opt("", "The whole Abandoned Lands", S.logFilter)}${CHAPTERS.filter(r => chs.includes(r.id) || r.id === S.logFilter).map(r => opt(r.id, r.name, S.logFilter)).join("")}</select></div>`;
   const fsteps = S.logFilter ? regionSteps(S.logFilter) : null;
@@ -1005,12 +1008,11 @@ document.addEventListener("click", async e => {
     return;
   }
   if (t.id === "turn-open" || t.id === "turn-rename") {
-    const cur = S.settings.turns || {}, labels = { ...(cur.labels || {}) }, label = $("turn-label").value.trim();
-    const key = t.id === "turn-open" ? Math.max(...allTurnKeys(), 0) + 1 : openTurnKey();
-    if (t.id === "turn-rename" && !label) { toast("Type the year's new name"); return; }
+    const cur = S.settings.turns || {}, labels = { ...(cur.labels || {}) };
+    if (t.id === "turn-open") { await saveSetting("turns", { open: Math.max(...allTurnKeys(), 0) + 1, labels }, `Year ${allTurnKeys().length + 1} has begun`); return; }
+    const key = +$("turn-pick").value, label = $("turn-label").value.trim();
     if (label) labels[key] = label; else delete labels[key];
-    const msg = t.id === "turn-open" ? `Year ${allTurnKeys().length + 1} has begun` : "Year renamed";
-    await saveSetting("turns", { open: key, labels }, msg); return;
+    await saveSetting("turns", { open: cur.open ?? openTurnKey(), labels }, label ? `Named "${label}"` : `Back to Year ${turnNo(key)}`); return;
   }
   if (t.id === "d-new") { S.draft = newDraft(); S.idx = EV.length - 1; refreshAll(false); return; }
   if (t.id === "d-cancel") { S.draft = null; refreshAll(false); return; }
@@ -1060,6 +1062,7 @@ document.addEventListener("change", async e => {
   if ((t.id && t.id.startsWith("ly-")) || t.id === "rv-names") { try { const o = {}; document.querySelectorAll(".layers input, #rv-names").forEach(i => o[i.id] = i.checked); localStorage.setItem("alwm.layers", JSON.stringify(o)); } catch (x) {} renderMap({ fresh: false }); return; }
   if (t.id === "st-sel") { setStatus(t.value); return; }
   if (t.id === "log-filter") { S.logFilter = t.value; renderSide(); return; }
+  if (t.id === "turn-pick") { $("turn-label").value = turnLabel(+t.value); $("turn-label").placeholder = `Year ${turnNo(+t.value)}`; return; }
   if (!S.draft) return;
   if (t.id === "d-ch") { S.draft.chapter = t.value; refreshAll(false); return; }
   if (t.id === "d-vis") { S.draft.visibility = t.value; return; }
