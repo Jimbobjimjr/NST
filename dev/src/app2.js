@@ -35,18 +35,85 @@ function regionTip(id) {
   return `<h4>${esc(r.name)}</h4><div class="sub">${esc(r.kind === "chapter" ? "Chapter · " + r.band : r.band)}${status}${danger}</div><div>${esc(note || r.blurb)}</div><div class="pres">${presenceList(st, id)}${marks.map(m => `<div style="display:flex;gap:6px;align-items:center">${pinSwatch(m, 14)}<span>${esc(markName(m))}</span></div>`).join("")}</div>${here.note ? `<div class="muted small" style="margin-top:6px">${esc(here.note)}</div>` : ""}${nx ? `<div class="small" style="margin-top:6px"><b>Next event:</b> ${esc(shortDate(nx.date))}, ${esc(nx.name)}</div>` : ""}<div class="muted small" style="margin-top:6px">Click for the record. Double-click to zoom into the region.</div>`;
 }
 function sinceLine(ev) { return ev ? `<div class="muted small since">Last change: ${esc(ev.title || "Untitled event")}${ev.when ? " · " + esc(ev.when) : ""}</div>` : ""; }
+/* Hover text for a threat on the map: a few sentences on its strength here, drawn from the tier and the entries that changed it. */
+const POWER_LINES = [
+  "",
+  "{Who} are little more than a rumour in {place}: omens, tracks and the odd lone scout.",
+  "{Who} are a pocket problem in {place}, striking with small bands and no more.",
+  "{Who} have made a true incursion into {place}, with commanders directing the fight and a champion at their head.",
+  "{Place} has become a campaign front for {who}, and a named lieutenant now walks the field.",
+  "{Leader} has come to {place}. {Who} are here in full strength, and the land will not be the same.",
+];
+const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+function tierHistory(get) {
+  const out = [], upto = Math.min(S.idx, EV.length - 1); let prev = get(blankState());
+  for (let i = 0; i <= upto; i++) { const cur = get(STATES[i]); if (cur !== prev) out.push({ ev: EV[i], from: prev, to: cur }); prev = cur; }
+  return out;
+}
+function firstSentence(t) { const m = String(t || "").trim().match(/^.*?[.!?](\s|$)/); const f = (m ? m[0] : String(t || "")).trim(); return f.length > 170 ? f.slice(0, 167).replace(/\s+\S*$/, "") + "…" : f; }
+const isOpening = ev => ev && (ev.id === "opening" || /^opening positions$/i.test(String(ev.title || "").trim()));
+const lowFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
+function autoStory({ who, place, leader, tier, hist, flavour, start }) {
+  const out = [];
+  if (tier > 0) out.push(POWER_LINES[Math.min(tier, 5)].replace(/\{Who\}/g, cap(who)).replace(/\{who\}/g, who).replace(/\{Place\}/g, cap(place)).replace(/\{place\}/g, place).replace(/\{Leader\}/g, cap(leader || "their leader")));
+  const last = hist[hist.length - 1];
+  if (last && last.to === tier && tier > 0 && isOpening(last.ev)) {
+    // Where the threat stands when the story begins, before anything has moved it.
+    out.push(start?.presses ? `This is where they stood when the story began, pressing on ${lowFirst(start.presses)}` : "This is where they stood when the story began.");
+    if (start?.wants) out.push(`What they want: ${lowFirst(start.wants)}`); else if (flavour) out.push(flavour);
+  } else if (last && last.to === tier && tier > 0) {
+    const ev = `“${last.ev.title || "an untitled entry"}”${last.ev.when ? ` (${last.ev.when})` : ""}`;
+    out.push(last.from === 0 ? (hist.length > 1 ? `They returned in ${ev}.` : `They first appeared here in ${ev}.`) : last.to > last.from ? `They grew stronger after ${ev}.` : `They were pushed back in ${ev}, but are not beaten.`);
+    const said = firstSentence(last.ev.summary);
+    if (said) out.push(said); else if (flavour) out.push(flavour);
+  } else if (flavour) out.push(flavour);
+  return out.join(" ");
+}
+/* The NST Lead can replace the automatic text. It is kept until the next entry changes that threat, then the automatic text takes over again. */
+function storyFor(key, info) {
+  const last = info.hist[info.hist.length - 1], at = last ? last.ev.id || "" : "";
+  const own = S.settings.hover?.[key];
+  const auto = autoStory(info);
+  return { key, auto, text: own && own.at === at && own.text ? own.text : auto, own: !!(own && own.at === at && own.text), at, vis: last?.ev.visibility || "public" };
+}
+function tokenStory(evil, id, site) {
+  const here = currentState()[id], E = EVILS[evil];
+  const t = site ? (here.at[site]?.[evil] || 0) : (here.p[evil] || 0);
+  const hist = tierHistory(s => site ? (s[id].at[site]?.[evil] || 0) : (s[id].p[evil] || 0));
+  const place = site ? `${siteName(id, site)} in ${R[id].name}` : R[id].name;
+  return storyFor(`tok:${evil}:${id}${site ? ":" + site : ""}`, { who: E.name.replace(/^The /, "the "), place, leader: E.figure, tier: t, hist, flavour: t >= 3 ? E.feel : "", start: E });
+}
+function threatStory(tid) {
+  const st = currentState(), id = findThreat(st, tid), t = st[id].threats[tid];
+  const what = t.kind === "lesser" ? LESSER[t.group]?.what : "";
+  const hist = tierHistory(s => { const r = findThreat(s, tid); return r ? +s[r].threats[tid].tier || 0 : 0; });
+  const place = t.site ? `${siteName(id, t.site)} in ${R[id].name}` : R[id].name;
+  return storyFor(`thr:${tid}`, { who: threatName(t), place, tier: +t.tier || 0, hist, flavour: t.note || what });
+}
+const storyHtml = st => `<div class="power">${esc(st.text)}</div>`;
+function rulesLine(t) {
+  if (Store.me.role === "viewer" || !TIERS[t]?.fielded) return "";
+  const T = TIERS[t];
+  return `<div class="muted small rules">Tier ${t} rules: ${esc(T.fielded)} · ${esc(T.reach)} · ${esc(T.approval)}</div>`;
+}
 function tokenTip(evil, id, site) {
-  const here = currentState()[id];
+  const here = currentState()[id], E = EVILS[evil];
   const t = site ? (here.at[site]?.[evil] || 0) : (here.p[evil] || 0), T = TIERS[t];
   const placed = site ? [] : Object.entries(here.at).filter(([, f]) => f[evil]).map(([sid, f]) => `${siteName(id, sid)} (${f[evil]})`);
-  const last = lastChange(c => (c.type === "set" && c.evil === evil && c.region === id && (!site || c.site === site)) || (c.type === "move" && c.evil === evil && (c.from === id || c.to === id)));
-  return `<h4>${EVILS[evil].name}</h4><div class="sub">${site ? "at " + esc(siteName(id, site)) + ", " : "in "}${esc(R[id].name)} · tier ${t}: ${esc(T.name)}</div><div><b style="font-weight:500">Fielded:</b> ${esc(T.fielded)}</div><div><b style="font-weight:500">Reach:</b> ${esc(T.reach)}</div><div><b style="font-weight:500">Approval:</b> ${esc(T.approval)}</div>${placed.length ? `<div style="margin-top:4px"><b style="font-weight:500">At:</b> ${esc(placed.join(", "))}${here.base[evil] ? `; region-wide ${here.base[evil]}` : ""}</div>` : ""}${sinceLine(last)}`;
+  return `<h4>${E.name}</h4><div class="sub">${site ? "at " + esc(siteName(id, site)) + ", " : "in "}${esc(R[id].name)} · tier ${t}: ${esc(T.name)}</div>${storyHtml(tokenStory(evil, id, site))}${placed.length ? `<div class="muted small" style="margin-top:4px">Strongest at ${esc(placed.join(", "))}</div>` : ""}${rulesLine(t)}`;
 }
 function threatTip(tid) {
   const st = currentState(), id = findThreat(st, tid); if (!id) return "";
   const t = st[id].threats[tid];
-  const what = t.kind === "lesser" ? LESSER[t.group]?.what : "";
-  return `<h4>${esc(threatName(t))}</h4><div class="sub">${esc(threatKind(t))} · tier ${t.tier}: ${esc(TIERS[t.tier].name)} in ${esc(R[id].name)}${t.site ? ", " + esc(siteName(id, t.site)) : ""}</div>${t.note ? `<div>${esc(t.note)}</div>` : ""}${what ? `<div class="muted small" style="margin-top:4px">${esc(what)}</div>` : ""}${sinceLine(lastChange(c => c.type === "threat" && c.tid === tid))}`;
+  return `<h4>${esc(threatName(t))}</h4><div class="sub">${esc(threatKind(t))} · tier ${t.tier}: ${esc(TIERS[t.tier].name)} in ${esc(R[id].name)}${t.site ? ", " + esc(siteName(id, t.site)) : ""}</div>${storyHtml(threatStory(tid))}${rulesLine(+t.tier)}`;
+}
+/* Every threat showing in a region, for the NST Lead's hover text editor. */
+function hoverTargets(id) {
+  const here = currentState()[id], out = [];
+  EVIL_ORDER.forEach(k => { if (here.p[k]) out.push({ label: `${EVILS[k].short} (region)`, story: tokenStory(k, id) }); });
+  Object.entries(here.at).forEach(([sid, f]) => EVIL_ORDER.forEach(k => { if (f[k]) out.push({ label: `${EVILS[k].short} at ${siteName(id, sid)}`, story: tokenStory(k, id, sid) }); }));
+  Object.values(here.threats).forEach(t => out.push({ label: threatName(t), story: threatStory(t.tid) }));
+  return out;
 }
 function markTip(mid) {
   const st = currentState(), id = findMark(st, mid); if (!id) return "";
@@ -566,6 +633,13 @@ function renderRegion() {
       <div class="btnrow"><button type="button" class="btn primary" id="ld-save">Save</button>${o.name || o.blurb ? `<button type="button" class="btn" id="ld-reset">Back to the original</button>` : ""}</div>
       <div class="note">Renames this place everywhere on the map. To rename a place on a region's map, zoom in, press Edit sites and click it.</div></div>`;
   }
+  if (isLead() && !S.usingFallback && !S.draft) {
+    const hv = hoverTargets(r.id), pick = hv.find(h => h.story.key === S.hoverPick) || hv[0];
+    if (pick) html += `<div class="notebox"><h5>Hover text · NST Lead</h5><div class="note">What players read when they hover a threat here. Your text stays until the next entry changes that threat, then the automatic text takes over again.</div>
+      <label class="lbl" for="hv-pick">Threat</label><select id="hv-pick">${hv.map(h => opt(h.story.key, h.label + (h.story.own ? " (your text)" : ""), pick.story.key)).join("")}</select>
+      <label class="lbl" for="hv-text">Text</label><textarea id="hv-text" rows="5">${esc(pick.story.text)}</textarea>
+      <div class="btnrow"><button type="button" class="btn primary" id="hv-save">Save text</button>${pick.story.own ? `<button type="button" class="btn" id="hv-auto">Use the automatic text</button>` : ""}</div></div>`;
+  }
   // Story notes for the region
   const canStory = VIS_RANK[S.layer] >= 1;
   if (regionEdit) {
@@ -990,6 +1064,13 @@ document.addEventListener("click", async e => {
     else { const o = { level: +v }, why = $("dg-why").value.trim(), feel = $("dg-feel").value.trim(); if (why) o.why = why; if (feel) o.feel = feel; all[id] = o; }
     await saveSetting("danger", all, v === "" ? "Danger level worked out from the map again" : "Danger level saved"); return;
   }
+  if (t.id === "hv-save" || t.id === "hv-auto") {
+    const pick = hoverTargets(S.selected).find(h => h.story.key === $("hv-pick").value); if (!pick) return;
+    const hover = { ...(S.settings.hover || {}) }, text = t.id === "hv-save" ? $("hv-text").value.trim() : "";
+    if (text && text !== pick.story.auto) hover[pick.story.key] = { text, at: pick.story.at, vis: pick.story.vis }; else delete hover[pick.story.key];
+    S.hoverPick = pick.story.key;
+    await saveSetting("hover", hover, hover[pick.story.key] ? "Hover text saved" : "Back to the automatic text"); return;
+  }
   if (t.id === "ld-save" || t.id === "ld-reset") {
     const id = S.selected, all = { ...(S.settings.regions || {}) };
     if (t.id === "ld-reset") delete all[id];
@@ -1062,6 +1143,7 @@ document.addEventListener("change", async e => {
   if ((t.id && t.id.startsWith("ly-")) || t.id === "rv-names") { try { const o = {}; document.querySelectorAll(".layers input, #rv-names").forEach(i => o[i.id] = i.checked); localStorage.setItem("alwm.layers", JSON.stringify(o)); } catch (x) {} renderMap({ fresh: false }); return; }
   if (t.id === "st-sel") { setStatus(t.value); return; }
   if (t.id === "log-filter") { S.logFilter = t.value; renderSide(); return; }
+  if (t.id === "hv-pick") { S.hoverPick = t.value; renderSide(); return; }
   if (t.id === "turn-pick") { $("turn-label").value = turnLabel(+t.value); $("turn-label").placeholder = `Year ${turnNo(+t.value)}`; return; }
   if (!S.draft) return;
   if (t.id === "d-ch") { S.draft.chapter = t.value; refreshAll(false); return; }
@@ -1118,7 +1200,7 @@ function refreshAll(fresh) {
   renderMap({ fresh: !!fresh }); renderChrome();
 }
 function setSettings(o) {
-  S.settings = { notice: o.notice || { text: NOTICE_TEXT, done: [] }, regions: o.regions || {}, danger: o.danger || {}, calendar: o.calendar || {}, turns: o.turns || {} };
+  S.settings = { notice: o.notice || { text: NOTICE_TEXT, done: [] }, regions: o.regions || {}, danger: o.danger || {}, calendar: o.calendar || {}, turns: o.turns || {}, hover: o.hover || {} };
   applyRegionInfo();
 }
 function applyData(d, first) {

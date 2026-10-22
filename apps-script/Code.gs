@@ -170,6 +170,7 @@ function act(me, b) {
       else if (b.key === 'danger') { if (!isNst(me)) throw new Error('Only the NST Team can set a danger level by hand.'); }
       else if (b.key === 'turns') { if (!isNst(me)) throw new Error('Only the NST Team can open a new turn.'); }
       else if (b.key === 'calendar') { if (!isNst(me)) throw new Error('Only the NST Team can change the calendar link.'); }
+      else if (b.key === 'hover') { if (me.role !== 'lead') throw new Error('Only the NST Lead can change the hover text.'); }
       else throw new Error('Unknown setting ' + b.key);
       writeRow('Settings', 'key', { key: b.key, value: JSON.stringify(b.value === undefined ? null : b.value) });
       log(me, 'setting', b.key);
@@ -286,6 +287,9 @@ function load(me) {
   if (turns) settings.turns = safeJSON(turns.value, {});
   var cal = findRow('Settings', 'key', 'calendar');
   if (cal) settings.calendar = safeJSON(cal.value, {});
+  // The NST Lead's hover text: each piece is only sent to people allowed to see the entry it belongs to.
+  var hover = findRow('Settings', 'key', 'hover');
+  if (hover) { var hv = safeJSON(hover.value, {}); settings.hover = {}; for (var hk in hv) if (hv[hk] && (VIS_RANK[hv[hk].vis || 'public'] || 0) <= rank) settings.hover[hk] = hv[hk]; }
   var dispatches = readRows('Dispatches').filter(function (r) { return r.id; }).map(function (r) {
     return { id: String(r.id), chapter: r.chapter, title: r.title, body: r.body || '', when: String(r.when || ''), pinned: truthy(r.pinned), createdBy: r.createdBy || '', createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) };
   });

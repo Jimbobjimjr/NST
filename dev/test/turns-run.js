@@ -80,6 +80,11 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   check(/2026/.test(now) && !/Year 4/.test(now) && /2 entries this year/.test(now) && /The thorn wall holds/.test(now) && /Drums in the north pass/.test(now), 'the timeline shows both entries in the turn');
   check(await p.locator('#ticks button').count() === 4, 'four ticks on the timeline');
   await p.locator('.timeline').screenshot({ path: OUT + 't1-turn-timeline.png' });
+  const wt = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt.x + wt.width / 2, wt.y + wt.height / 2); await sleep(300);
+  const tipT = await p.locator('#tip').textContent();
+  check(/true incursion into Bracken/.test(tipT) && /grew stronger after “The thorn wall holds” \(Nov\)/.test(tipT) && !/rules/.test(tipT) && !/Fielded/.test(tipT), 'a player hovering a token reads a short story of its strength', tipT);
+  await p.locator('#tip').screenshot({ path: OUT + 't4-token-story.png' });
+  await p.mouse.move(5, 5);
   const tok = await p.locator('.tok[data-evil="pale"][data-region="braylong"]').count();
   check(tok === 1, 'the map shows the whole turn applied');
   await p.click('#tl-prev'); await sleep(700);
@@ -111,6 +116,28 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   check(gas.get({ action: 'load' }).events.find(e => e.id === 'ev-d').turn === 2, 'the NST Team moves an entry to an earlier turn');
   check(/1 entr/.test(await p.locator('.turnhead', { hasText: '2026' }).textContent()), 'the November turn now has one entry');
   check(p.errs.length === 0, 'no page errors for the lead', p.errs);
+  await p.close();
+
+  // 6. The NST Lead writes their own hover text
+  p = await open(); await signIn(p, 'lead-1');
+  await p.click('#zfit'); let cb = await p.locator('.citygrp[data-region="bracken"]').boundingBox(); await p.mouse.click(cb.x + cb.width / 2, cb.y + cb.height / 2); await sleep(500);
+  check(/true incursion into Bracken/.test(await p.locator('#hv-text').inputValue()), 'the editor starts from the automatic text');
+  await p.fill('#hv-text', 'The thorns have the town by the throat.'); await p.click('#hv-save'); await sleep(900);
+  check(await p.locator('#hv-auto').count() === 1 && /your text/.test(await p.locator('#hv-pick').textContent()), 'the lead\'s text is saved');
+  await p.locator('.notebox', { hasText: 'Hover text' }).screenshot({ path: OUT + 't5-hover-editor.png' });
+  await p.close();
+  p = await open();
+  let wt2 = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt2.x + wt2.width / 2, wt2.y + wt2.height / 2); await sleep(300);
+  check(/^The Wildwrought.*The thorns have the town by the throat\.$/.test(await p.locator('#tip').textContent()), 'players read the lead\'s text', await p.locator('#tip').textContent());
+  await p.close();
+  check(!post({ action: 'saveSetting', code: 'nst-1', key: 'hover', value: {} }).ok, 'only the NST Lead can change hover text');
+  post({ action: 'saveSetting', code: 'lead-1', key: 'hover', value: { ...gas.get({ action: 'load', code: 'lead-1' }).settings.hover, 'thr:secret': { text: 'Hidden plans', at: 'x', vis: 'nst' } } });
+  check(!gas.get({ action: 'load' }).settings.hover['thr:secret'] && !!gas.get({ action: 'load', code: 'lead-1' }).settings.hover['thr:secret'], 'hover text for a hidden entry is not sent to players');
+  post({ action: 'saveEvent', code: 'bracken-1', event: { id: 'ev-e', title: 'The wall breaks', when: 'Dec', chapter: 'bracken', visibility: 'public', summary: 'Fire takes the thorn wall at dawn. More text.', changes: [{ type: 'set', evil: 'wild', region: 'bracken', tier: 2 }] } });
+  p = await open();
+  wt2 = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt2.x + wt2.width / 2, wt2.y + wt2.height / 2); await sleep(300);
+  const t6 = await p.locator('#tip').textContent();
+  check(/pushed back in “The wall breaks” \(Dec\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
   await p.close();
 
   await b.close();

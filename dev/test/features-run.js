@@ -123,7 +123,9 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   await p.click('#rv-back'); await sleep(700);
   const tok = p.locator('.tok[data-region="wastes"]');
   const tb = await tok.boundingBox(); await p.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await sleep(250);
-  check(/Fielded/.test(await p.locator('#tip').textContent()) && /Last change: Opening positions/.test(await p.locator('#tip').textContent()), 'hovering a token shows tier details and its last change');
+  const tt = await p.locator('#tip').textContent();
+  check(/incursion/.test(tt) && /where they stood when the story began, pressing on the western border/.test(tt) && /What they want: endless war/.test(tt) && /Tier 3 rules:/.test(tt), 'hovering a token tells its story, plus the tier rules for a rep', tt);
+  await p.locator('#tip').screenshot({ path: OUT + 'f9-opening-tip.png' });
   check(await p.locator('#map .mk[data-region="bracken"]').count() === 2, 'pinpoints show on the main map');
   check(await p.locator('#map path[fill="url(#hatch-siege)"]').count() >= 1, 'besieged region hatched on the main map');
   await p.screenshot({ path: OUT + 'f3-main-besieged.png' });
