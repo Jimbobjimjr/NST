@@ -1600,7 +1600,7 @@ function threatStory(tid) {
 }
 const storyHtml = st => `<div class="power">${esc(st.text)}</div>`;
 function rulesLine(t) {
-  if (Store.me.role === "viewer" || !TIERS[t]?.fielded) return "";
+  if (VIS_RANK[S.layer] < 1 || !TIERS[t]?.fielded) return ""; // Only when viewing as the story team or NST Team, never in the Players view.
   const T = TIERS[t];
   return `<div class="muted small rules">Tier ${t} rules: ${esc(T.fielded)} · ${esc(T.reach)} · ${esc(T.approval)}</div>`;
 }

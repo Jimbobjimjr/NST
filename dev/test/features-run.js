@@ -126,6 +126,10 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   const tt = await p.locator('#tip').textContent();
   check(/incursion/.test(tt) && /where they stood when the story began, pressing on the western border/.test(tt) && /What they want: endless war/.test(tt) && /Tier 3 rules:/.test(tt), 'hovering a token tells its story, plus the tier rules for a rep', tt);
   await p.locator('#tip').screenshot({ path: OUT + 'f9-opening-tip.png' });
+  await p.mouse.move(5, 5); await p.click('#layerseg [data-layer="public"]'); await sleep(500);
+  const tb2 = await p.locator('.tok[data-region="wastes"]').boundingBox(); await p.mouse.move(tb2.x + tb2.width / 2, tb2.y + tb2.height / 2); await sleep(250);
+  check(!/rules/.test(await p.locator('#tip').textContent()), 'in the Players view the hover box shows only the story');
+  await p.mouse.move(5, 5); await p.click('#layerseg [data-layer="nst"]'); await sleep(500);
   check(await p.locator('#map .mk[data-region="bracken"]').count() === 2, 'pinpoints show on the main map');
   check(await p.locator('#map path[fill="url(#hatch-siege)"]').count() >= 1, 'besieged region hatched on the main map');
   await p.screenshot({ path: OUT + 'f3-main-besieged.png' });
