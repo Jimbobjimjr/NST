@@ -370,3 +370,6 @@ body.fs-on { overflow: hidden; }
 .turnlist { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; font-size: 14px; }
 .rstory .hist button.now { border-color: var(--accent); }
 .rstory .hist button.later { opacity: .55; }
+.backstage-note { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 4px; white-space: pre-wrap; }
+.backstage-note .lbl { display: block; margin-bottom: 2px; }
+textarea.backstage, .field.backstage textarea { border-style: dashed; }

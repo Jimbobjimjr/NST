@@ -298,7 +298,7 @@ function applyEvent(prev, ev) {
       const reg = s[c.region] ? c.region : was; if (!reg) continue;
       // A pinpoint sits at a site, at a spot on the region's map (x, y as fractions), or region-wide.
       const placed = !!c.site || c.x != null || !!c.wide, keepOld = !placed && reg === was && old;
-      s[reg].marks[c.mid] = { mid: c.mid, icon: MARKS[c.icon] ? c.icon : old?.icon || "pin", label: c.label ?? old?.label ?? "", note: c.note ?? old?.note ?? "",
+      s[reg].marks[c.mid] = { mid: c.mid, icon: MARKS[c.icon] ? c.icon : old?.icon || "pin", label: c.label ?? old?.label ?? "", note: c.note ?? old?.note ?? "", backstage: c.backstage ?? old?.backstage ?? "",
         site: placed ? c.site || "" : keepOld ? old.site : "", x: placed ? (c.site ? null : +c.x) : keepOld ? old.x : null, y: placed ? (c.site ? null : +c.y) : keepOld ? old.y : null };
     }
   }

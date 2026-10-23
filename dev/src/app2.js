@@ -165,10 +165,15 @@ function hoverTargets(id) {
   Object.values(here.threats).forEach(t => out.push({ label: threatName(t), story: threatStory(t.tid) }));
   return out;
 }
+/* Notes the story teams and NST Team keep for themselves. Hidden in the Players view; the sheet never sends them to players. */
+function backstageBox(text) {
+  if (!text || VIS_RANK[S.layer] < 1) return "";
+  return `<div class="backstage-note"><span class="lbl">Behind the curtain</span><div>${esc(text)}</div></div>`;
+}
 function markTip(mid) {
   const st = currentState(), id = findMark(st, mid); if (!id) return "";
   const m = st[id].marks[mid];
-  return `<h4>${esc(markName(m))}</h4><div class="sub">${esc(MARKS[m.icon]?.name || "Pinpoint")} · ${esc(R[id].name)}${m.site ? ", " + esc(siteName(id, m.site)) : ""}</div>${m.note ? `<div>${esc(m.note)}</div>` : ""}${sinceLine(lastChange(c => c.type === "mark" && c.mid === mid))}`;
+  return `<h4>${esc(markName(m))}</h4><div class="sub">${esc(MARKS[m.icon]?.name || "Pinpoint")} · ${esc(R[id].name)}${m.site ? ", " + esc(siteName(id, m.site)) : ""}</div>${m.note ? `<div>${esc(m.note)}</div>` : ""}${backstageBox(m.backstage)}${sinceLine(lastChange(c => c.type === "mark" && c.mid === mid))}`;
 }
 function siteTip(region, sid) {
   const here = currentState()[region], s = sitesFor(region, true).find(x => x.id === sid); if (!s) return "";
@@ -498,7 +503,7 @@ function renderChrome() {
   if (!ev) { now.innerHTML = `<h2>No story events yet</h2><p class="muted">Open the Story log to record the first movement.</p>`; }
   else {
     const ch = ev.chapter && R[ev.chapter] ? R[ev.chapter].name : "National";
-    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${ev !== S.draft && TURNS.length > 1 ? esc(turnName(turnKey(ev))) + " · " : ""}${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Example</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${describeChanges(ev)}`;
+    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${ev !== S.draft && TURNS.length > 1 ? esc(turnName(turnKey(ev))) + " · " : ""}${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Example</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${backstageBox(ev.backstage)}${describeChanges(ev)}`;
   }
   $("tl-play").textContent = S.playing ? "❚❚" : "▶";
   $("tl-play").setAttribute("aria-label", S.playing ? "Pause" : "Play the story");
@@ -745,7 +750,7 @@ function aheadBox(r) {
 
 /* ---------- Draft editing ---------- */
 function defaultChapter() { const mine = myChapters(); if (isNST()) return "national"; return mine[0] || "national"; }
-function newDraft() { return { id: null, title: "", when: "", chapter: defaultChapter(), visibility: "story", summary: "", changes: [], turn: openTurnKey() }; }
+function newDraft() { return { id: null, title: "", when: "", chapter: defaultChapter(), visibility: "story", summary: "", backstage: "", changes: [], turn: openTurnKey() }; }
 function ensureDraft() { if (!S.draft) S.draft = newDraft(); return S.draft; }
 function claimChapter(dr, id) { if (R[id]?.kind === "chapter" && dr.chapter === "national" && (isNST() || myChapters().includes(id))) dr.chapter = id; }
 function stepTier(evil, d, site) {
@@ -885,6 +890,7 @@ function changeEditor(c, i) {
       <input class="full" data-ci="${i}" data-f="label" placeholder="Name, e.g. The burned chapel" value="${esc(c.label || "")}">
       <select data-ci="${i}" data-f="site" aria-label="Where">${where}</select><button type="button" class="btn" data-placemark="${i}">Place on the map</button>
       <input class="full" data-ci="${i}" data-f="note" placeholder="What happened or what's here" value="${esc(c.note || "")}">
+      <textarea class="full backstage" data-ci="${i}" data-f="backstage" placeholder="Behind the curtain (NST Team and story teams only)" aria-label="Behind the curtain notes">${esc(c.backstage || "")}</textarea>
       ${existing ? `<label class="ck"><input type="checkbox" data-ci="${i}" data-f="remove" ${c.remove ? "checked" : ""}> Clear it from the map</label>` : ""}`;
   }
   return `<div class="chg"><div class="full" style="padding-right:22px">${typeSel}</div>${body}<button type="button" class="x" data-delc="${i}" aria-label="Remove this change">×</button></div>`;
@@ -916,6 +922,7 @@ function renderLog() {
         <div class="field"><label class="lbl" for="d-ch">Chapter</label><select id="d-ch">${chapterOpts}</select></div></div>
         <div class="field"><label class="lbl" for="d-vis">Who can see it</label><select id="d-vis">${Object.keys(VIS).map(v => opt(v, VIS[v], dr.visibility)).join("")}</select></div>
         <div class="field"><label class="lbl" for="d-sum">What happened</label><textarea id="d-sum" placeholder="What players saw, did and changed">${esc(dr.summary)}</textarea></div>
+        <div class="field backstage"><label class="lbl" for="d-back">Behind the curtain · NST Team and story teams only</label><textarea id="d-back" placeholder="Where this is heading: hooks, secrets, what comes next. Players never see this.">${esc(dr.backstage || "")}</textarea></div>
         <div class="lbl">Changes to the map</div>
         ${dr.changes.map(changeEditor).join("") || `<div class="note">No changes yet. Add one below, or open a region on the map and use its steppers.</div>`}
         <div class="btnrow"><button type="button" class="btn" data-addc="set">+ Presence</button><button type="button" class="btn" data-addc="move">+ Advance</button><button type="button" class="btn" data-addc="clash">+ Clash</button><button type="button" class="btn" data-addc="status">+ Condition</button><button type="button" class="btn" data-addc="threat">+ Lesser evil or threat</button><button type="button" class="btn" data-addc="mark">+ Pinpoint</button></div>
@@ -967,7 +974,7 @@ const clean = o => JSON.parse(JSON.stringify(o));
 async function saveDraft() {
   const dr = S.draft; if (!dr || !dr.title.trim() || !canDraft()) return;
   if (!isNST() && draftWarnings(dr).some(w => w.nst)) { toast("This change needs the NST Team"); return; }
-  const body = clean({ turn: dr.turn ?? openTurnKey(), title: dr.title.trim(), when: dr.when.trim(), chapter: dr.chapter || "national", visibility: dr.visibility || "story", summary: dr.summary.trim(),
+  const body = clean({ turn: dr.turn ?? openTurnKey(), title: dr.title.trim(), when: dr.when.trim(), chapter: dr.chapter || "national", visibility: dr.visibility || "story", summary: dr.summary.trim(), backstage: (dr.backstage || "").trim(),
     changes: dr.changes.map(c => { const o = { ...c }; if (o.tier !== undefined) o.tier = +o.tier; for (const k of ["site", "fromSite", "toSite"]) if (o[k] === "") delete o[k]; for (const k of ["x", "y"]) if (o[k] == null) delete o[k]; return o; }),
     updatedBy: Store.me.name || "", updatedAt: new Date().toISOString() });
   try {
@@ -1148,7 +1155,7 @@ document.addEventListener("click", async e => {
   if (t.id === "d-save") { await saveDraft(); return; }
   if (d.addc) { const dr = ensureDraft(); dr.changes.push(freshChange(d.addc)); claimChapter(dr, S.selected); refreshAll(false); return; }
   if (d.delc !== undefined) { S.draft.changes.splice(+d.delc, 1); refreshAll(false); return; }
-  if (d.edit) { const ev = S.events.find(x => x.id === d.edit); if (ev) { S.draft = clean({ id: ev.id, title: ev.title || "", when: ev.when || "", chapter: ev.chapter || "national", visibility: ev.visibility || "story", summary: ev.summary || "", changes: ev.changes || [], turn: turnKey(ev) }); S.tab = "log"; refreshAll(false); } return; }
+  if (d.edit) { const ev = S.events.find(x => x.id === d.edit); if (ev) { S.draft = clean({ id: ev.id, title: ev.title || "", when: ev.when || "", chapter: ev.chapter || "national", visibility: ev.visibility || "story", summary: ev.summary || "", backstage: ev.backstage || "", changes: ev.changes || [], turn: turnKey(ev) }); S.tab = "log"; refreshAll(false); } return; }
   if (d.del) { S.confirmDel = d.del; renderLog(); return; }
   if (d.delno) { S.confirmDel = null; renderLog(); return; }
   if (d.delok) { S.confirmDel = null; try { await Store.deleteEvent(d.delok); toast("Event deleted"); } catch (x) { toast("Couldn't delete: " + (x?.message || "")); } return; }
@@ -1184,7 +1191,8 @@ document.addEventListener("input", e => {
   if (t.id === "d-title") { S.draft.title = t.value; const b = $("d-save"); if (b) b.disabled = !t.value.trim() || (!isNST() && draftWarnings(S.draft).some(w => w.nst)); return; }
   if (t.id === "d-when") { S.draft.when = t.value; return; }
   if (t.id === "d-sum") { S.draft.summary = t.value; return; }
-  if (t.dataset.ci !== undefined && t.tagName === "INPUT" && t.type !== "checkbox") { S.draft.changes[+t.dataset.ci][t.dataset.f] = t.value; return; }
+  if (t.id === "d-back") { S.draft.backstage = t.value; return; }
+  if (t.dataset.ci !== undefined && (t.tagName === "INPUT" && t.type !== "checkbox" || t.tagName === "TEXTAREA")) { S.draft.changes[+t.dataset.ci][t.dataset.f] = t.value; return; }
 });
 document.addEventListener("change", async e => {
   const t = e.target;
@@ -1198,6 +1206,8 @@ document.addEventListener("change", async e => {
   if (t.id === "d-vis") { S.draft.visibility = t.value; return; }
   if (t.id === "d-turn") { S.draft.turn = +t.value; renderSide(); return; }
   if (t.dataset.ci !== undefined) {
+    // Typed text is already saved as it's typed; redrawing here would swallow a click on Save.
+    if (t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type !== "checkbox")) return;
     const i = +t.dataset.ci, c = S.draft.changes[i], f = t.dataset.f;
     if (f === "type") S.draft.changes[i] = freshChange(t.value, c.region || c.to);
     else if (f === "keep" || f === "remove" || f === "all") c[f] = t.checked;
@@ -1206,7 +1216,7 @@ document.addEventListener("change", async e => {
     else if (f === "site" && c.type === "mark") { if (t.value !== "__xy") Object.assign(c, { site: t.value, x: null, y: null, wide: !t.value }); }
     else if (f === "mid") {
       if (t.value === "__new") Object.assign(c, { mid: newMid(), label: "", remove: false });
-      else { const st = draftBaseState(), rid = findMark(st, t.value), old = st[rid].marks[t.value]; Object.assign(c, { mid: t.value, icon: old.icon, label: old.label, region: rid, site: old.site || "", x: old.x, y: old.y, note: old.note || "" }); }
+      else { const st = draftBaseState(), rid = findMark(st, t.value), old = st[rid].marks[t.value]; Object.assign(c, { mid: t.value, icon: old.icon, label: old.label, backstage: old.backstage || "", region: rid, site: old.site || "", x: old.x, y: old.y, note: old.note || "" }); }
     }
     else if (f === "from") { c.from = t.value; c.fromSite = ""; }
     else if (f === "to") { c.to = t.value; c.toSite = ""; }
@@ -1225,7 +1235,7 @@ $("tl-next").onclick = () => { stop(); stepTurn(1); };
 $("tl-play").onclick = () => { S.playing ? stop() : play(); };
 let playTimer = null;
 function play() {
-  if (TURNS.length < 2) return;
+  if (EV.length < 2) return;
   if (S.draft && S.draft.changes.length) { toast("Finish or discard the draft to play the story"); return; }
   S.draft = null;
   S.playing = true; if (S.idx >= EV.length - 1) goTo(0, false); else renderChrome();

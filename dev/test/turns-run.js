@@ -145,6 +145,34 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   check(/Small Wildwrought bands strike in Bracken/.test(t6) && /“The wall breaks” \(3 December 2025\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
   await p.close();
 
+  // 7. Behind-the-curtain notes on entries and pinpoints
+  check(post({ action: 'saveEvent', code: 'lead-1', event: { id: 'ev-f', title: 'A light in the chapel', when: 'Dec', chapter: 'bracken', visibility: 'public', summary: 'Someone lit the old chapel lamp.', backstage: 'The cult returns next season.',
+    changes: [{ type: 'mark', mid: 'm-chapel', icon: 'star', label: 'The old chapel', region: 'bracken', note: 'A lamp burns at night', backstage: 'It is a signal to the Vine.' }] } }).ok, 'the lead saves an entry with hidden notes');
+  const asPlayer = gas.get({ action: 'load' }).events.find(e => e.id === 'ev-f'), asRep = gas.get({ action: 'load', code: 'bracken-1' }).events.find(e => e.id === 'ev-f');
+  check(asPlayer.backstage === undefined && asPlayer.changes[0].backstage === undefined && asPlayer.changes[0].note === 'A lamp burns at night', 'players are never sent the hidden notes');
+  check(asRep.backstage === 'The cult returns next season.' && asRep.changes[0].backstage === 'It is a signal to the Vine.', 'reps get the hidden notes');
+  p = await open();
+  check(!/Behind the curtain/.test(await p.locator('#tl-now').textContent()) && /Someone lit/.test(await p.locator('#tl-now').textContent()), 'players see the entry without the hidden notes');
+  await p.close();
+  p = await open(); await signIn(p, 'lead-1');
+  check(/Behind the curtain\s*The cult returns next season\./.test(await p.locator('#tl-now').textContent()), 'the NST Team sees the hidden notes on the timeline');
+  await p.locator('#tl-now').screenshot({ path: OUT + 't6-backstage-entry.png' });
+  const mk = await p.locator('#map .mk[data-region="bracken"]').first().boundingBox(); await p.mouse.move(mk.x + mk.width / 2, mk.y + mk.height / 2); await sleep(300);
+  check(/It is a signal to the Vine/.test(await p.locator('#tip').textContent()), 'the NST Team sees the pinpoint\'s hidden notes', await p.locator('#tip').textContent());
+  await p.locator('#tip').screenshot({ path: OUT + 't7-backstage-pin.png' });
+  await p.mouse.move(5, 5); await p.click('#layerseg [data-layer="public"]'); await sleep(500);
+  check(!/Behind the curtain/.test(await p.locator('#tl-now').textContent()), 'the Players view hides the hidden notes');
+  await p.click('#layerseg [data-layer="nst"]'); await sleep(400);
+  await p.click('#tab-log'); await sleep(300);
+  await p.locator('.ev', { hasText: 'A light in the chapel' }).locator('[data-edit]').click(); await sleep(400);
+  check(await p.locator('#d-back').inputValue() === 'The cult returns next season.', 'editing an entry shows its hidden notes');
+  await p.fill('#d-back', 'The cult returns in spring.'); await p.locator('textarea.backstage').fill('A signal, and a trap.'); await p.click('#d-save'); await sleep(900);
+  const saved = gas.get({ action: 'load', code: 'lead-1' }).events.find(e => e.id === 'ev-f');
+  check(saved.backstage === 'The cult returns in spring.' && saved.changes[0].backstage === 'A signal, and a trap.', 'the edit form saves both hidden notes', [saved.backstage, saved.changes[0].backstage]);
+  await p.locator('.draft, #pane-log').first().screenshot({ path: OUT + 't8-backstage-form.png' }).catch(() => {});
+  check(p.errs.length === 0, 'no page errors with hidden notes', p.errs);
+  await p.close();
+
   await b.close();
   console.log(fails ? fails + ' failed' : 'all passed');
   process.exit(fails ? 1 : 0);

@@ -18,7 +18,7 @@
  */
 
 var TABS = {
-  Events: ['id', 'order', 'turn', 'title', 'when', 'chapter', 'visibility', 'summary', 'changes', 'example', 'createdAt', 'updatedBy', 'updatedAt'],
+  Events: ['id', 'order', 'turn', 'title', 'when', 'chapter', 'visibility', 'summary', 'changes', 'example', 'createdAt', 'updatedBy', 'updatedAt', 'backstage'],
   Sites: ['id', 'region', 'name', 'x', 'y', 'note', 'story', 'hidden', 'custom', 'updatedBy', 'updatedAt'],
   Notes: ['region', 'public', 'story', 'updatedBy', 'updatedAt'],
   Reps: ['code', 'name', 'role', 'chapters', 'active'],
@@ -268,6 +268,8 @@ function act(me, b) {
 function load(me) {
   var rank = ROLE_RANK[me.role] || 0;
   var events = readRows('Events').filter(function (r) { return r.id && (VIS_RANK[r.visibility || 'public'] || 0) <= rank; }).map(rowToEvent);
+  // Behind-the-curtain notes on entries and pinpoints are for the story teams and the NST Team only.
+  if (rank < 1) events.forEach(function (e) { delete e.backstage; e.changes.forEach(function (c) { delete c.backstage; }); });
   var sites = readRows('Sites').filter(function (r) { return r.id; }).map(function (r) {
     var site = { id: r.id, region: r.region, name: r.name, x: r.x === '' ? undefined : num(r.x), y: r.y === '' ? undefined : num(r.y), note: r.note || '', hidden: truthy(r.hidden), custom: truthy(r.custom) };
     if (rank >= 1) site.story = r.story || '';
@@ -389,11 +391,11 @@ function deleteRow(name, key, val) {
   for (var i = keys.length - 1; i >= 0; i--) if (String(keys[i][0]) === String(val)) sh.deleteRow(i + 2);
 }
 function eventToRow(ev) {
-  return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when ? "'" + ev.when : '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '',
+  return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when ? "'" + ev.when : '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '', backstage: ev.backstage || '',
     changes: JSON.stringify(ev.changes || []), example: !!ev.example, createdAt: ev.createdAt || new Date().toISOString(), updatedBy: ev.updatedBy || '', updatedAt: ev.updatedAt || '' };
 }
 function rowToEvent(r) {
-  return { id: String(r.id), order: num(r.order), turn: r.turn === '' || r.turn === undefined ? undefined : num(r.turn), title: r.title, when: whenStr(r.when), chapter: r.chapter || 'national', visibility: r.visibility || 'public', summary: r.summary || '',
+  return { id: String(r.id), order: num(r.order), turn: r.turn === '' || r.turn === undefined ? undefined : num(r.turn), title: r.title, when: whenStr(r.when), chapter: r.chapter || 'national', visibility: r.visibility || 'public', summary: r.summary || '', backstage: r.backstage || '',
     changes: safeJSON(r.changes, []), example: r.example === true || r.example === 'TRUE', createdAt: iso(r.createdAt), updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
 }
 function log(me, action, detail) { try { sheet('Log').appendRow([new Date(), me.name, action, String(detail || '').slice(0, 200)]); } catch (e) {} }

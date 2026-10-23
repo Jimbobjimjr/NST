@@ -87,7 +87,7 @@ Reps can sign in from inside the embed too.
 
 ## Data format
 
-Each row in **Events** is one entry in the story. Its `changes` column holds a JSON list. Every map layer uses the same shape, so new layers can be added later without changing old events.
+Each row in **Events** is one entry in the story. Its `changes` column holds a JSON list. Every map layer uses the same shape, so new layers can be added later without changing old events. The `backstage` column (and a `backstage` field on a pinpoint change) holds behind-the-curtain notes for the story teams and the NST Team; the sheet never sends them to players.
 
 ```json
 { "type": "set",    "evil": "pale", "region": "braylong", "site": "braylong-velaris", "tier": 2 }
