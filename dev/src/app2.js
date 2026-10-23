@@ -1251,9 +1251,15 @@ function setSettings(o) {
   S.settings = { notice: o.notice || { text: NOTICE_TEXT, done: [] }, regions: o.regions || {}, danger: o.danger || {}, calendar: o.calendar || {}, turns: o.turns || {}, hover: o.hover || {} };
   applyRegionInfo();
 }
+/* Older copies of the story sheet send dates as "Tue Apr 01 2025 18:00:00 GMT+1100 (...)". Show them as "April 2025" or "3 April 2025". */
+function tidyWhen(w) {
+  const m = String(w || "").match(/^\w{3} (\w{3}) (\d{2}) (\d{4}) \d{2}:\d{2}:\d{2} GMT/); if (!m) return w;
+  const month = new Date(`${m[1]} 1, 2000`).toLocaleString("en-AU", { month: "long" });
+  return +m[2] === 1 ? `${month} ${m[3]}` : `${+m[2]} ${month} ${m[3]}`;
+}
 function applyData(d, first) {
   const atEnd = S.idx >= EV.length - 1;
-  if (d.events) S.events = d.events.map(e => ({ ...e, changes: typeof e.changes === "string" ? JSON.parse(e.changes || "[]") : (e.changes || []) }));
+  if (d.events) S.events = d.events.map(e => ({ ...e, when: tidyWhen(e.when), changes: typeof e.changes === "string" ? JSON.parse(e.changes || "[]") : (e.changes || []) }));
   if (d.sites) S.sites = Array.isArray(d.sites) ? Object.fromEntries(d.sites.map(s => [s.id, s])) : d.sites;
   if (d.notes) S.notes = d.notes;
   if (d.positions) S.positions = d.positions;

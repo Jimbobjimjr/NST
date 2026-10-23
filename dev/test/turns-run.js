@@ -138,11 +138,11 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   check(!post({ action: 'saveSetting', code: 'nst-1', key: 'hover', value: {} }).ok, 'only the NST Lead can change hover text');
   post({ action: 'saveSetting', code: 'lead-1', key: 'hover', value: { ...gas.get({ action: 'load', code: 'lead-1' }).settings.hover, 'thr:secret': { text: 'Hidden plans', at: 'x', vis: 'nst' } } });
   check(!gas.get({ action: 'load' }).settings.hover['thr:secret'] && !!gas.get({ action: 'load', code: 'lead-1' }).settings.hover['thr:secret'], 'hover text for a hidden entry is not sent to players');
-  post({ action: 'saveEvent', code: 'bracken-1', event: { id: 'ev-e', title: 'The wall breaks', when: 'Dec', chapter: 'bracken', visibility: 'public', summary: 'Fire takes the thorn wall at dawn. More text.', changes: [{ type: 'set', evil: 'wild', region: 'bracken', tier: 2 }] } });
+  post({ action: 'saveEvent', code: 'bracken-1', event: { id: 'ev-e', title: 'The wall breaks', when: 'Wed Dec 03 2025 18:00:00 GMT+1100 (Australian Eastern Daylight Time)', chapter: 'bracken', visibility: 'public', summary: 'Fire takes the thorn wall at dawn. More text.', changes: [{ type: 'set', evil: 'wild', region: 'bracken', tier: 2 }] } });
   p = await open();
   wt2 = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt2.x + wt2.width / 2, wt2.y + wt2.height / 2); await sleep(300);
   const t6 = await p.locator('#tip').textContent();
-  check(/Small Wildwrought bands strike in Bracken/.test(t6) && /“The wall breaks” \(Dec\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
+  check(/Small Wildwrought bands strike in Bracken/.test(t6) && /“The wall breaks” \(3 December 2025\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
   await p.close();
 
   await b.close();

@@ -242,7 +242,7 @@ function reduceAct(lists, me, a, p) {
   throw new Error("Unknown action " + a);
 }
 function applyLists(d) {
-  if (d.dispatches) S.dispatches = d.dispatches;
+  if (d.dispatches) S.dispatches = d.dispatches.map(x => ({ ...x, when: tidyWhen(x.when) }));
   if (d.calendar) S.calendar = d.calendar.map(c => ({ ...c, date: String(c.date || "").slice(0, 10) }));
   if (d.requests) S.requests = d.requests.map(q => ({ ...q, affects: Array.isArray(q.affects) ? q.affects : String(q.affects || "").split(",").filter(Boolean), comments: q.comments || [] }));
 }

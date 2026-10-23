@@ -182,7 +182,7 @@ function act(me, b) {
       if (!canWrite(me, d.chapter)) throw new Error('You can only write dispatches for your own chapter.');
       if (!String(d.title || '').trim()) throw new Error('A dispatch needs a headline.');
       var rowD = oldD || { id: newId('d'), createdBy: me.name, createdAt: now };
-      rowD.chapter = d.chapter; rowD.title = String(d.title).trim(); rowD.body = d.body || ''; rowD.when = d.when || '';
+      rowD.chapter = d.chapter; rowD.title = String(d.title).trim(); rowD.body = d.body || ''; rowD.when = d.when ? "'" + d.when : '';
       rowD.pinned = isNst(me) ? !!d.pinned : truthy(rowD.pinned); rowD.updatedAt = now;
       writeRow('Dispatches', 'id', rowD);
       log(me, oldD ? 'edit dispatch' : 'add dispatch', rowD.title);
@@ -291,7 +291,7 @@ function load(me) {
   var hover = findRow('Settings', 'key', 'hover');
   if (hover) { var hv = safeJSON(hover.value, {}); settings.hover = {}; for (var hk in hv) if (hv[hk] && (VIS_RANK[hv[hk].vis || 'public'] || 0) <= rank) settings.hover[hk] = hv[hk]; }
   var dispatches = readRows('Dispatches').filter(function (r) { return r.id; }).map(function (r) {
-    return { id: String(r.id), chapter: r.chapter, title: r.title, body: r.body || '', when: String(r.when || ''), pinned: truthy(r.pinned), createdBy: r.createdBy || '', createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) };
+    return { id: String(r.id), chapter: r.chapter, title: r.title, body: r.body || '', when: whenStr(r.when), pinned: truthy(r.pinned), createdBy: r.createdBy || '', createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) };
   });
   var calendar = readRows('Calendar').filter(function (r) { return r.id && r.date; }).map(function (r) {
     var c = { id: String(r.id), date: dateStr(r.date), chapter: r.chapter, name: r.name, link: r.link || '' };
@@ -389,11 +389,11 @@ function deleteRow(name, key, val) {
   for (var i = keys.length - 1; i >= 0; i--) if (String(keys[i][0]) === String(val)) sh.deleteRow(i + 2);
 }
 function eventToRow(ev) {
-  return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when || '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '',
+  return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when ? "'" + ev.when : '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '',
     changes: JSON.stringify(ev.changes || []), example: !!ev.example, createdAt: ev.createdAt || new Date().toISOString(), updatedBy: ev.updatedBy || '', updatedAt: ev.updatedAt || '' };
 }
 function rowToEvent(r) {
-  return { id: String(r.id), order: num(r.order), turn: r.turn === '' || r.turn === undefined ? undefined : num(r.turn), title: r.title, when: String(r.when || ''), chapter: r.chapter || 'national', visibility: r.visibility || 'public', summary: r.summary || '',
+  return { id: String(r.id), order: num(r.order), turn: r.turn === '' || r.turn === undefined ? undefined : num(r.turn), title: r.title, when: whenStr(r.when), chapter: r.chapter || 'national', visibility: r.visibility || 'public', summary: r.summary || '',
     changes: safeJSON(r.changes, []), example: r.example === true || r.example === 'TRUE', createdAt: iso(r.createdAt), updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
 }
 function log(me, action, detail) { try { sheet('Log').appendRow([new Date(), me.name, action, String(detail || '').slice(0, 200)]); } catch (e) {} }
@@ -404,6 +404,11 @@ function newId(prefix) { return prefix + Date.now().toString(36) + Math.random()
 function dateStr(v) {
   if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   return String(v || '').replace(/^'/, '').slice(0, 10);
+}
+/** Sheets turns text like "Apr 2025" into a date; show it as words again ("April 2025", or "3 April 2025"). */
+function whenStr(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), Utilities.formatDate(v, Session.getScriptTimeZone(), 'd') === '1' ? 'MMMM yyyy' : 'd MMMM yyyy');
+  return String(v || '').replace(/^'/, '');
 }
 function iso(v) { return v instanceof Date ? v.toISOString() : String(v || ''); }
 function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
