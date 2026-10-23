@@ -75,27 +75,32 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
 
   // 4. A player sees one national step with both entries
   p = await open();
-  check(/^2026 \(4 of 4\)\./.test(await sub(p)), 'the national count only went up by one turn, under its name', await sub(p));
+  check(/^2026 \(4 of 4\) · entry 2 of 2\./.test(await sub(p)), 'the story ends on the last entry of year 4, under its name', await sub(p));
   const now = await p.locator('#tl-now').textContent();
-  check(/2026/.test(now) && !/Year 4/.test(now) && /2 entries this year/.test(now) && /The thorn wall holds/.test(now) && /Drums in the north pass/.test(now), 'the timeline shows both entries in the turn');
+  check(/Drums in the north pass/.test(now) && !/The thorn wall holds/.test(now), 'the timeline shows one entry at a time', now.slice(0, 120));
   check(await p.locator('#ticks button').count() === 4, 'four ticks on the timeline');
   await p.locator('.timeline').screenshot({ path: OUT + 't1-turn-timeline.png' });
   const wt = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt.x + wt.width / 2, wt.y + wt.height / 2); await sleep(300);
   const tipT = await p.locator('#tip').textContent();
-  check(/true incursion into Bracken/.test(tipT) && /grew stronger after “The thorn wall holds” \(Nov\)/.test(tipT) && !/rules/.test(tipT) && !/Fielded/.test(tipT), 'a player hovering a token reads a short story of its strength', tipT);
+  check(/true incursion into Bracken/.test(tipT) && /“The thorn wall holds” \(Nov\)/.test(tipT) && !/They grew stronger after/.test(tipT) && !/rules/.test(tipT) && !/Fielded/.test(tipT), 'a player hovering a token reads a short story of its strength', tipT);
   await p.locator('#tip').screenshot({ path: OUT + 't4-token-story.png' });
   await p.mouse.move(5, 5);
   const tok = await p.locator('.tok[data-evil="pale"][data-region="braylong"]').count();
   check(tok === 1, 'the map shows the whole turn applied');
   await p.click('#tl-prev'); await sleep(700);
-  check(/^Year 3 of 4\./.test(await sub(p)) && /Bells at Braylong/.test(await p.locator('#tl-now').textContent()), 'back one step goes back a whole turn');
-  await p.click('#tl-next'); await sleep(900);
+  check(/^2026 \(4 of 4\) · entry 1 of 2\./.test(await sub(p)) && /The thorn wall holds/.test(await p.locator('#tl-now').textContent()), 'back one step goes to the previous entry in the same year', await sub(p));
+  check(await p.locator('.tok[data-evil="pale"][data-region="braylong"]').count() === 1 && (await p.locator('.tok[data-evil="pale"][data-region="braylong"]').textContent()).trim() === '2', 'the map shows Braylong before the drums arrive');
+  await p.click('#tl-prev'); await sleep(700);
+  check(/^Year 3 of 4\./.test(await sub(p)) && /Bells at Braylong/.test(await p.locator('#tl-now').textContent()), 'back again reaches the year before');
+  await p.click('#tl-next'); await sleep(900); await p.click('#tl-next'); await sleep(900);
   // Bracken's own story
   await p.click('#zfit'); const bx = await p.locator('.citygrp[data-region="bracken"]').boundingBox(); await p.mouse.click(bx.x + bx.width / 2, bx.y + bx.height / 2); await sleep(500);
   check(/Bracken: beat 2 of 2/.test(await sub(p)), 'the header shows Bracken\'s own step', await sub(p));
   const rs = await p.locator('.rstory').textContent();
   check(/Bracken's story · beat 2 of 2/.test(rs) && /Thorns and Embers/.test(rs) && /The thorn wall holds/.test(rs) && !/Bells at Braylong/.test(rs), 'the region page lists only Bracken\'s steps', rs.slice(0, 120));
   await p.locator('.rstory').screenshot({ path: OUT + 't2-region-story.png' });
+  await p.click('.rstory button:has-text("Previous here")'); await sleep(800);
+  check(/Bracken's story · beat 2 of 2/.test(await p.locator('.rstory').textContent()) && /entry 1 of 2/.test(await sub(p)), 'Previous here jumps to Bracken\'s latest beat', await sub(p));
   await p.click('.rstory button:has-text("Previous here")'); await sleep(800);
   check(/Bracken's story · beat 1 of 2/.test(await p.locator('.rstory').textContent()) && /^Year 2 of 4/.test(await sub(p)), 'Previous here jumps to Bracken\'s last step', await sub(p));
   // Story log, filtered to one chapter
@@ -137,7 +142,7 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   p = await open();
   wt2 = await p.locator('.tok[data-evil="wild"][data-region="bracken"]').boundingBox(); await p.mouse.move(wt2.x + wt2.width / 2, wt2.y + wt2.height / 2); await sleep(300);
   const t6 = await p.locator('#tip').textContent();
-  check(/pushed back in “The wall breaks” \(Dec\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
+  check(/Small Wildwrought bands strike in Bracken/.test(t6) && /“The wall breaks” \(Dec\)/.test(t6) && /Fire takes the thorn wall at dawn\./.test(t6) && !/More text/.test(t6) && !/by the throat/.test(t6), 'a new entry brings the automatic text back, using its summary', t6);
   await p.close();
 
   await b.close();

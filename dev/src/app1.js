@@ -312,8 +312,6 @@ function rebuild() {
   TURNS = [];
   EV.forEach((e, i) => { const k = turnKey(e), t = TURNS[TURNS.length - 1]; if (t && t.key === k) { t.last = i; t.events.push(e); } else TURNS.push({ key: k, first: i, last: i, events: [e] }); });
   if (S.idx > EV.length - 1) S.idx = Math.max(0, EV.length - 1);
-  // The map always shows the end of a turn: every entry in it has happened.
-  if (TURNS.length) S.idx = TURNS[turnIndexOf(S.idx)].last;
 }
 function currentState() {
   if (S.draft && S.draft.changes.length) return applyEvent(draftBaseState(), S.draft);
@@ -325,14 +323,11 @@ function draftBaseState() {
   return STATES[EV.length - 1] || blankState();
 }
 function prevStateOf(i) { return i > 0 ? STATES[i - 1] : blankState(); }
-function prevForView() { return S.draft && S.draft.changes.length ? draftBaseState() : prevStateOf(curTurn() ? curTurn().first : S.idx); }
-/* The turn on screen, as one event: its own entry, or all its entries' changes together. */
+function prevForView() { return S.draft && S.draft.changes.length ? draftBaseState() : prevStateOf(S.idx); }
+/* The entry on screen, or the draft being previewed. Years group entries; the timeline still steps through them one at a time. */
 function currentEvent() {
   if (S.draft && S.draft.changes.length) return S.draft;
-  const t = curTurn(); if (!t) return EV[S.idx];
-  if (t.events.length === 1) return t.events[0];
-  const vis = t.events.reduce((m, e) => VIS_RANK[e.visibility || "public"] > VIS_RANK[m] ? e.visibility || "public" : m, "public");
-  return { turn: t.key, multi: t.events, title: turnName(t.key), when: "", chapter: "national", visibility: vis, changes: t.events.flatMap(e => e.changes || []) };
+  return EV[S.idx];
 }
 const threatShown = () => $("ly-threats").checked;
 function allThreats(st) { const out = []; for (const id in st) for (const tid in st[id].threats) out.push({ ...st[id].threats[tid], region: id }); return out; }
@@ -570,7 +565,7 @@ function drawOverlays(opts = {}) {
   // trails (earlier moves up to current step)
   G.trails.innerHTML = "";
   if ($("ly-trails").checked) {
-    const upto = S.draft && S.draft.changes.length ? EV.length : (curTurn() ? curTurn().first : S.idx);
+    const upto = S.draft && S.draft.changes.length ? EV.length : S.idx;
     for (let i = 0; i < upto; i++) (EV[i].changes || []).forEach(c => {
       if (c.type !== "move" || S.hidden.has(c.evil) || !R[c.from] || !R[c.to] || c.from === c.to) return;
       el("path", { class: "trail", d: arcD(posOf(c.from), posOf(c.to), .18), stroke: `var(--${c.evil})`, opacity: S.focus && S.focus !== c.evil ? .2 : 1 }, G.trails);
@@ -674,14 +669,13 @@ function renderMap(opts) {
   else if (S.draft && S.draft.changes.length) { bn.hidden = false; bn.textContent = "Previewing your draft event"; }
   else bn.hidden = true;
 }
-function stepTurn(d) { if (TURNS.length) goTo(TURNS[Math.max(0, Math.min(TURNS.length - 1, turnIndexOf(S.idx) + d))].last, d > 0); }
+function stepTurn(d) { if (EV.length) goTo(S.idx + d, d > 0); }
 function goTo(i, animate) {
   if (!EV.length) return;
   i = Math.max(0, Math.min(EV.length - 1, i));
-  const ft = turnIndexOf(S.idx), tt = turnIndexOf(i), turn = TURNS[tt];
-  S.idx = turn.last; i = S.idx;
-  const forwardOne = animate && tt === ft + 1 && !reduced && !RV.id;
-  const moves = forwardOne ? turn.events.flatMap(e => e.changes || []).filter(c => c.type === "move" && R[c.from] && R[c.to] && c.from !== c.to && !S.hidden.has(c.evil)) : [];
+  const forwardOne = animate && i === S.idx + 1 && !reduced && !RV.id;
+  S.idx = i;
+  const moves = forwardOne ? (EV[i].changes || []).filter(c => c.type === "move" && R[c.from] && R[c.to] && c.from !== c.to && !S.hidden.has(c.evil)) : [];
   const hide = new Set(moves.map(c => c.to + ":" + c.evil));
   redraw({ hiddenTok: hide, fresh: true });
   moves.forEach(c => {

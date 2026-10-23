@@ -805,8 +805,6 @@ function rebuild() {
   TURNS = [];
   EV.forEach((e, i) => { const k = turnKey(e), t = TURNS[TURNS.length - 1]; if (t && t.key === k) { t.last = i; t.events.push(e); } else TURNS.push({ key: k, first: i, last: i, events: [e] }); });
   if (S.idx > EV.length - 1) S.idx = Math.max(0, EV.length - 1);
-  // The map always shows the end of a turn: every entry in it has happened.
-  if (TURNS.length) S.idx = TURNS[turnIndexOf(S.idx)].last;
 }
 function currentState() {
   if (S.draft && S.draft.changes.length) return applyEvent(draftBaseState(), S.draft);
@@ -818,14 +816,11 @@ function draftBaseState() {
   return STATES[EV.length - 1] || blankState();
 }
 function prevStateOf(i) { return i > 0 ? STATES[i - 1] : blankState(); }
-function prevForView() { return S.draft && S.draft.changes.length ? draftBaseState() : prevStateOf(curTurn() ? curTurn().first : S.idx); }
-/* The turn on screen, as one event: its own entry, or all its entries' changes together. */
+function prevForView() { return S.draft && S.draft.changes.length ? draftBaseState() : prevStateOf(S.idx); }
+/* The entry on screen, or the draft being previewed. Years group entries; the timeline still steps through them one at a time. */
 function currentEvent() {
   if (S.draft && S.draft.changes.length) return S.draft;
-  const t = curTurn(); if (!t) return EV[S.idx];
-  if (t.events.length === 1) return t.events[0];
-  const vis = t.events.reduce((m, e) => VIS_RANK[e.visibility || "public"] > VIS_RANK[m] ? e.visibility || "public" : m, "public");
-  return { turn: t.key, multi: t.events, title: turnName(t.key), when: "", chapter: "national", visibility: vis, changes: t.events.flatMap(e => e.changes || []) };
+  return EV[S.idx];
 }
 const threatShown = () => $("ly-threats").checked;
 function allThreats(st) { const out = []; for (const id in st) for (const tid in st[id].threats) out.push({ ...st[id].threats[tid], region: id }); return out; }
@@ -1063,7 +1058,7 @@ function drawOverlays(opts = {}) {
   // trails (earlier moves up to current step)
   G.trails.innerHTML = "";
   if ($("ly-trails").checked) {
-    const upto = S.draft && S.draft.changes.length ? EV.length : (curTurn() ? curTurn().first : S.idx);
+    const upto = S.draft && S.draft.changes.length ? EV.length : S.idx;
     for (let i = 0; i < upto; i++) (EV[i].changes || []).forEach(c => {
       if (c.type !== "move" || S.hidden.has(c.evil) || !R[c.from] || !R[c.to] || c.from === c.to) return;
       el("path", { class: "trail", d: arcD(posOf(c.from), posOf(c.to), .18), stroke: `var(--${c.evil})`, opacity: S.focus && S.focus !== c.evil ? .2 : 1 }, G.trails);
@@ -1167,14 +1162,13 @@ function renderMap(opts) {
   else if (S.draft && S.draft.changes.length) { bn.hidden = false; bn.textContent = "Previewing your draft event"; }
   else bn.hidden = true;
 }
-function stepTurn(d) { if (TURNS.length) goTo(TURNS[Math.max(0, Math.min(TURNS.length - 1, turnIndexOf(S.idx) + d))].last, d > 0); }
+function stepTurn(d) { if (EV.length) goTo(S.idx + d, d > 0); }
 function goTo(i, animate) {
   if (!EV.length) return;
   i = Math.max(0, Math.min(EV.length - 1, i));
-  const ft = turnIndexOf(S.idx), tt = turnIndexOf(i), turn = TURNS[tt];
-  S.idx = turn.last; i = S.idx;
-  const forwardOne = animate && tt === ft + 1 && !reduced && !RV.id;
-  const moves = forwardOne ? turn.events.flatMap(e => e.changes || []).filter(c => c.type === "move" && R[c.from] && R[c.to] && c.from !== c.to && !S.hidden.has(c.evil)) : [];
+  const forwardOne = animate && i === S.idx + 1 && !reduced && !RV.id;
+  S.idx = i;
+  const moves = forwardOne ? (EV[i].changes || []).filter(c => c.type === "move" && R[c.from] && R[c.to] && c.from !== c.to && !S.hidden.has(c.evil)) : [];
   const hide = new Set(moves.map(c => c.to + ":" + c.evil));
   redraw({ hiddenTok: hide, fresh: true });
   moves.forEach(c => {
@@ -1544,14 +1538,60 @@ function regionTip(id) {
 }
 function sinceLine(ev) { return ev ? `<div class="muted small since">Last change: ${esc(ev.title || "Untitled event")}${ev.when ? " · " + esc(ev.when) : ""}</div>` : ""; }
 /* Hover text for a threat on the map: a few sentences on its strength here, drawn from the tier and the entries that changed it. */
-const POWER_LINES = [
-  "",
-  "{Who} are little more than a rumour in {place}: omens, tracks and the odd lone scout.",
-  "{Who} are a pocket problem in {place}, striking with small bands and no more.",
-  "{Who} have made a true incursion into {place}, with commanders directing the fight and a champion at their head.",
-  "{Place} has become a campaign front for {who}, and a named lieutenant now walks the field.",
-  "{Leader} has come to {place}. {Who} are here in full strength, and the land will not be the same.",
-];
+/* How strong a threat is, told in each External Evil's own voice, tier 1 to 5. */
+const POWER_LINES = {
+  pale: [
+    "Only rumours of the Pale Host reach {place}: graves found open, a cold mist at dusk, the dead not quite at rest.",
+    "Small packs of the Pale Host prowl {place}, picking at the edges and dragging off whatever the living leave behind.",
+    "The Pale Host has come to {place} in earnest, a slow and silent tide of the dead with something cold and clever driving it on.",
+    "{Place} has become a long war against the Pale Host, fought season after season, and one of the Lich-Regent's named servants now walks among the ranks.",
+    "{Leader} has come to {place}. The dead rise in their thousands, and nothing here will stand as it was.",
+  ],
+  drowned: [
+    "Salt rimes the wells of {place}, and fishers whisper of shapes moving beneath the water.",
+    "Drowned Court raiders rise out of the waters around {place} to strike, then sink back into the deep.",
+    "The Drowned Court has made a true incursion into {place}, its tides turned by cold commanders and a champion of the deep.",
+    "{Place} is a drowning front, where the Drowned Court presses its campaign season after season and a named lieutenant of the Coral Crown rules the waves.",
+    "{Leader} has risen at {place}. The sea itself comes ashore, and the land will not get it back.",
+  ],
+  gor: [
+    "War drums carry faintly into {place}, and scouts speak of Gor outriders watching from the ridgelines.",
+    "Gor raiding parties strike at {place} and vanish again, testing the defences and taking what they can carry.",
+    "The Gor Horde has pushed into {place} in force, its warbands led by a champion who means to claim the ground for good.",
+    "{Place} is a battlefield the Gor Horde will not give up: warhost after warhost, led by one of the Warchanter's named chiefs.",
+    "{Leader} has come to {place}, and the whole Horde marches behind. Prove, or fall.",
+  ],
+  wild: [
+    "Strange growth creeps across {place}: briars where none were planted, birdsong that stops too suddenly.",
+    "Small Wildwrought bands strike in {place}, taking what should not exist and melting back into the green.",
+    "The Wildwrought have made a true incursion into {place}, their commanders reshaping the land as their champion leads the hunt.",
+    "{Place} is being reclaimed season by season, as the Wildwrought wage a patient campaign under one of the Thorn-Regent's named wardens.",
+    "{Leader} walks in {place}. Forest swallows road and wall alike, and nothing built by hand is safe.",
+  ],
+  other: [
+    "Talk of {who} in {place} is still only rumour, but the rumours are getting more specific.",
+    "{Who} are a nagging problem in {place}, small in number but bold enough to strike and slip away.",
+    "{Who} have dug into {place} in earnest, organised now, with leaders and a reason to stay.",
+    "{Who} hold {place} in a long and bitter struggle, and their leaders are names people now know.",
+    "{Who} have overrun {place}, and the whole region feels it.",
+  ],
+};
+/* What changed them last, a few ways of saying each so neighbouring boxes don't read the same. */
+const MOMENTUM = {
+  first: ["Their story here began with {ev}.", "They first came to {place} with {ev}, and have not left since."],
+  back: ["Driven out once, they crept back with {ev}.", "They returned with {ev}, as if they had never left."],
+  up: ["Since {ev}, their grip on {place} has only tightened.", "{Ev} made them bolder."],
+  down: ["{Ev} drove them back, but they are far from beaten.", "They were bloodied in {ev}, yet they linger."],
+};
+/* The NST Lead's own words for where each threat stood when the new setting began. */
+const OPENING_TEXT = {
+  "tok:pale:northpass": "The Pale Host seems to swarm out of the Ephel Dúathm, better known as the 'Mountains of Shadow', in unending numbers, led by unknown figures. This is where they stood when the new setting began, pushing through the easy points of ingress across such a natural barrier, aiming anywhere the living have abandoned their dead. What they want is unknown.",
+  "tok:wild:southswamp": "The Wildwrought have made a true incursion into The Souragne Morass, with commanders directing the fight and a champion at their head. This is where they stood when the new setting began, lurking along the boundaries of the southeastern forests and swamplands of the Abandoned Lands, or in horrific bursts of terraforming nature, enabling them to appear anywhere magic is mined, bottled or forced into machines. What they want: to rewild the world and purge abused magic.",
+  "tok:gor:wastes": "The Gor Horde is an ever-present threat in the Western Wastes, with raiding parties, full incursions, and the occasional warhost ravaging a village or two before returning home triumphant. This is not always the case, though, and often they are required to be repelled before they claim new territory as their own. This is where they stood when the new setting began, pressing on the western border of the Abandoned Lands through the Ironspan Ranges. What they want: endless war, and to unmake what they call the ‘Age of Walls’.",
+  "tok:drowned:whispering": "The Drowned Court have made a true incursion into The Whispering Sea, with renewed focus on hampering Ritterstein’s sea access and coastal security. This is where they stood as a threat when the new setting began, pressing on all oceans, coasts and river mouths. What they want: to drown the land and reclaim all water for the sea.",
+  "tok:drowned:shoals": "The Drowned Court have migrated part of their focus to Dagger Shoals, striking with small bands and no more. They do this by pressing on all ocean connections via coasts, rivers, and wells; most strongly, the coast around Reefwatch Keep and the harbour in Helsreik. What they want: to drown the land and reclaim all water for the sea.",
+};
+const pickOf = (list, seed) => { let h = 0; for (const ch of String(seed)) h = (h * 31 + ch.charCodeAt(0)) | 0; return list[Math.abs(h) % list.length]; };
 const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
 function tierHistory(get) {
   const out = [], upto = Math.min(S.idx, EV.length - 1); let prev = get(blankState());
@@ -1561,17 +1601,20 @@ function tierHistory(get) {
 function firstSentence(t) { const m = String(t || "").trim().match(/^.*?[.!?](\s|$)/); const f = (m ? m[0] : String(t || "")).trim(); return f.length > 170 ? f.slice(0, 167).replace(/\s+\S*$/, "") + "…" : f; }
 const isOpening = ev => ev && (ev.id === "opening" || /^opening positions$/i.test(String(ev.title || "").trim()));
 const lowFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
-function autoStory({ who, place, leader, tier, hist, flavour, start }) {
-  const out = [];
-  if (tier > 0) out.push(POWER_LINES[Math.min(tier, 5)].replace(/\{Who\}/g, cap(who)).replace(/\{who\}/g, who).replace(/\{Place\}/g, cap(place)).replace(/\{place\}/g, place).replace(/\{Leader\}/g, cap(leader || "their leader")));
+function autoStory({ key, evil, who, place, leader, tier, hist, flavour, start }) {
+  if (tier <= 0) return flavour || "";
+  const fill = t => t.replace(/\{Who\}/g, cap(who)).replace(/\{who\}/g, who).replace(/\{Place\}/g, cap(place)).replace(/\{place\}/g, place).replace(/\{Leader\}/g, cap(leader || "their leader"));
+  const out = [fill((POWER_LINES[evil] || POWER_LINES.other)[Math.min(tier, 5) - 1])];
   const last = hist[hist.length - 1];
-  if (last && last.to === tier && tier > 0 && isOpening(last.ev)) {
-    // Where the threat stands when the story begins, before anything has moved it.
-    out.push(start?.presses ? `This is where they stood when the story began, pressing on ${lowFirst(start.presses)}` : "This is where they stood when the story began.");
+  if (last && last.to === tier && isOpening(last.ev)) {
+    // Where the threat stands when the new setting begins, before anything has moved it.
+    if (OPENING_TEXT[key]) return OPENING_TEXT[key];
+    if (start?.presses) out.push(`This is where they stood when the new setting began, pressing on ${lowFirst(start.presses)}`);
     if (start?.wants) out.push(`What they want: ${lowFirst(start.wants)}`); else if (flavour) out.push(flavour);
-  } else if (last && last.to === tier && tier > 0) {
+  } else if (last && last.to === tier) {
     const ev = `“${last.ev.title || "an untitled entry"}”${last.ev.when ? ` (${last.ev.when})` : ""}`;
-    out.push(last.from === 0 ? (hist.length > 1 ? `They returned in ${ev}.` : `They first appeared here in ${ev}.`) : last.to > last.from ? `They grew stronger after ${ev}.` : `They were pushed back in ${ev}, but are not beaten.`);
+    const kind = last.from === 0 ? (hist.length > 1 ? "back" : "first") : last.to > last.from ? "up" : "down";
+    out.push(fill(pickOf(MOMENTUM[kind], key + (last.ev.id || ""))).replace(/\{Ev\}/g, ev).replace(/\{ev\}/g, ev));
     const said = firstSentence(last.ev.summary);
     if (said) out.push(said); else if (flavour) out.push(flavour);
   } else if (flavour) out.push(flavour);
@@ -1589,14 +1632,15 @@ function tokenStory(evil, id, site) {
   const t = site ? (here.at[site]?.[evil] || 0) : (here.p[evil] || 0);
   const hist = tierHistory(s => site ? (s[id].at[site]?.[evil] || 0) : (s[id].p[evil] || 0));
   const place = site ? `${siteName(id, site)} in ${R[id].name}` : R[id].name;
-  return storyFor(`tok:${evil}:${id}${site ? ":" + site : ""}`, { who: E.name.replace(/^The /, "the "), place, leader: E.figure, tier: t, hist, flavour: t >= 3 ? E.feel : "", start: E });
+  const key = `tok:${evil}:${id}${site ? ":" + site : ""}`;
+  return storyFor(key, { key, evil, who: E.name.replace(/^The /, "the "), place, leader: E.figure.split(/[,(]/)[0].trim(), tier: t, hist, flavour: "", start: E });
 }
 function threatStory(tid) {
   const st = currentState(), id = findThreat(st, tid), t = st[id].threats[tid];
   const what = t.kind === "lesser" ? LESSER[t.group]?.what : "";
   const hist = tierHistory(s => { const r = findThreat(s, tid); return r ? +s[r].threats[tid].tier || 0 : 0; });
   const place = t.site ? `${siteName(id, t.site)} in ${R[id].name}` : R[id].name;
-  return storyFor(`thr:${tid}`, { who: threatName(t), place, tier: +t.tier || 0, hist, flavour: t.note || what });
+  return storyFor(`thr:${tid}`, { key: `thr:${tid}`, evil: "other", who: threatName(t), place, tier: +t.tier || 0, hist, flavour: t.note || what });
 }
 const storyHtml = st => `<div class="power">${esc(st.text)}</div>`;
 function rulesLine(t) {
@@ -1942,36 +1986,33 @@ function renderChrome() {
   const max = VIS_RANK[maxLayer()];
   document.querySelectorAll("#layerseg button").forEach(b => { b.hidden = VIS_RANK[b.dataset.layer] > max; b.setAttribute("aria-pressed", String(b.dataset.layer === S.layer)); });
   $("layerseg").hidden = max === 0; $("layer-lbl").hidden = max === 0;
-  const n = TURNS.length, sc = $("scrub"), ti = turnIndexOf(S.idx);
-  sc.max = Math.max(0, n - 1); sc.value = ti; sc.disabled = n < 2;
+  const n = TURNS.length, ne = EV.length, sc = $("scrub"), ti = turnIndexOf(S.idx);
+  sc.max = Math.max(0, ne - 1); sc.value = S.idx; sc.disabled = ne < 2;
   const ev = currentEvent();
   const ticks = $("ticks"); ticks.innerHTML = "";
+  // One tick per year, where its first entry sits on the slider.
   if (n > 1) TURNS.forEach((t, k) => {
     const b = document.createElement("button"); b.type = "button"; b.textContent = turnNo(t.key); b.title = turnName(t.key) + (t.events.length > 1 ? ` (${t.events.length} entries)` : ": " + (t.events[0].title || ""));
-    b.style.left = (k / (n - 1) * 100) + "%"; if (k === ti) b.className = "on";
-    b.onclick = () => { stop(); goTo(t.last, k === ti + 1); }; ticks.appendChild(b);
+    b.style.left = (t.first / Math.max(1, ne - 1) * 100) + "%"; if (k === ti) b.className = "on";
+    b.onclick = () => { stop(); goTo(t.first, t.first === S.idx + 1); }; ticks.appendChild(b);
   });
   const now = $("tl-now");
   if (!ev) { now.innerHTML = `<h2>No story events yet</h2><p class="muted">Open the Story log to record the first movement.</p>`; }
-  else if (ev.multi) {
-    now.innerHTML = `<h2>${esc(ev.title)}</h2><span class="meta">${ev.multi.length} entries this year</span>
-      <div class="turnlist">${ev.multi.map(e => `<div><b>${esc(e.title || "Untitled event")}</b> <span class="muted">· ${esc(R[e.chapter]?.name || "National")}${e.when ? " · " + esc(e.when) : ""}</span>${e.summary ? `<div class="small">${esc(e.summary)}</div>` : ""}</div>`).join("")}</div>${describeChanges(ev)}`;
-  }
   else {
     const ch = ev.chapter && R[ev.chapter] ? R[ev.chapter].name : "National";
-    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Example</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${describeChanges(ev)}`;
+    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${ev !== S.draft && TURNS.length > 1 ? esc(turnName(turnKey(ev))) + " · " : ""}${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Example</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${describeChanges(ev)}`;
   }
   $("tl-play").textContent = S.playing ? "❚❚" : "▶";
   $("tl-play").setAttribute("aria-label", S.playing ? "Pause" : "Play the story");
-  ["tl-first", "tl-prev"].forEach(id => $(id).disabled = ti <= 0);
-  $("tl-next").disabled = ti >= n - 1;
-  $("tl-play").disabled = n < 2;
+  ["tl-first", "tl-prev"].forEach(id => $(id).disabled = S.idx <= 0);
+  $("tl-next").disabled = S.idx >= ne - 1;
+  $("tl-play").disabled = ne < 2;
   renderWho();
   renderSide();
 }
 function describeChanges(ev) {
   const at = (region, site) => (R[region]?.name || "?") + (site ? " (" + siteName(region, site) + ")" : "");
-  const before = (() => { if (ev.multi) return prevStateOf(EV.indexOf(ev.multi[0])); const i = EV.indexOf(ev); return i > 0 ? STATES[i - 1] : ev === S.draft ? draftBaseState() : blankState(); })();
+  const before = (() => { const i = EV.indexOf(ev); return i > 0 ? STATES[i - 1] : ev === S.draft ? draftBaseState() : blankState(); })();
   const parts = (ev.changes || []).map(c => {
     if (c.type === "set") return `${EVILS[c.evil]?.short || "?"} ${+c.tier ? "at tier " + c.tier : c.all ? "withdraws entirely from" : "withdraws"} in ${at(c.region, c.site)}`.replace("withdraws entirely from in", "withdraws entirely from");
     if (c.type === "move") return `${EVILS[c.evil]?.short || "?"} advances ${at(c.from, c.fromSite)} → ${at(c.to, c.toSite)}${c.keep ? " (holding its ground behind)" : ""}`;
@@ -2011,7 +2052,8 @@ const TABS = ["threats", "region", "log", "overview", "dispatches", "calendar", 
 function renderSubStep() {
   const n = TURNS.length, ti = turnIndexOf(S.idx);
   const rs = S.selected && R[S.selected]?.kind === "chapter" ? regionSteps(S.selected) : null, rk = rs ? rs.filter(i => i <= S.idx).length : 0;
-  $("sub-step").textContent = n ? (S.draft && S.draft.changes.length ? "Draft preview." : `${turnLabel(TURNS[ti].key) ? `${turnLabel(TURNS[ti].key)} (${turnNo(TURNS[ti].key)} of ${turnNo(TURNS[n - 1].key)})` : `Year ${turnNo(TURNS[ti].key)} of ${turnNo(TURNS[n - 1].key)}`}.${rs && rs.length ? ` ${R[S.selected].name}: beat ${rk} of ${rs.length}.` : ""}`) : "";
+  const t = TURNS[ti], within = t && t.events.length > 1 ? ` · entry ${S.idx - t.first + 1} of ${t.events.length}` : "";
+  $("sub-step").textContent = n ? (S.draft && S.draft.changes.length ? "Draft preview." : `${turnLabel(t.key) ? `${turnLabel(t.key)} (${turnNo(t.key)} of ${turnNo(TURNS[n - 1].key)})` : `Year ${turnNo(t.key)} of ${turnNo(TURNS[n - 1].key)}`}${within}.${rs && rs.length ? ` ${R[S.selected].name}: beat ${rk} of ${rs.length}.` : ""}`) : "";
 }
 function renderSide() {
   renderSubStep();
@@ -2036,12 +2078,12 @@ function regionSteps(id) {
   return out;
 }
 function regionStory(r) {
-  const steps = regionSteps(r.id), t = curTurn(), seen = steps.filter(i => i <= S.idx).length;
+  const steps = regionSteps(r.id), seen = steps.filter(i => i <= S.idx).length;
   if (!steps.length) return `<div><h5>${esc(r.name)}'s story</h5><span class="muted small">Nothing has happened here yet.</span></div>`;
-  const prev = steps.filter(i => t && i < t.first).pop(), next = steps.find(i => i > S.idx);
+  const prev = steps.filter(i => i < S.idx).pop(), next = steps.find(i => i > S.idx);
   return `<div class="rstory"><h5>${esc(r.name)}'s story · beat ${seen} of ${steps.length}</h5>
     <div class="btnrow"><button type="button" class="btn" ${prev != null ? `data-jump="${prev}"` : "disabled"}>◀ Previous here</button><button type="button" class="btn" ${next != null ? `data-jump="${next}"` : "disabled"}>Next here ▶</button></div>
-    <div class="hist">${steps.map((i, k) => { const e = EV[i], now = t && i >= t.first && i <= t.last, later = i > S.idx;
+    <div class="hist">${steps.map((i, k) => { const e = EV[i], now = i === S.idx, later = i > S.idx;
       return `<button type="button" data-jump="${i}" class="${now ? "now" : ""}${later ? " later" : ""}"><b>${k + 1}. ${esc(e.title || "Untitled event")}</b><br><span class="muted">${esc(turnName(turnKey(e)))}${e.when ? " · " + esc(e.when) : ""}${later ? " · later in the story" : ""}</span></button>`; }).join("")}</div></div>`;
 }
 /* "Right now": one line per chapter, built from what is on the map in this year. */
@@ -2403,7 +2445,7 @@ function renderLog() {
     const rows = [];
     for (let i = t.first; i <= t.last; i++) if (!fsteps || fsteps.includes(i)) rows.push(i);
     if (!rows.length) return "";
-    return `<div class="turnhead${t === ct ? " cur" : ""}"><button type="button" data-jump="${t.last}">${esc(turnName(t.key))}</button><span class="muted small">${t.events.length} entr${t.events.length === 1 ? "y" : "ies"}</span></div>` + rows.map(i => {
+    return `<div class="turnhead${t === ct ? " cur" : ""}"><button type="button" data-jump="${t.first}">${esc(turnName(t.key))}</button><span class="muted small">${t.events.length} entr${t.events.length === 1 ? "y" : "ies"}</span></div>` + rows.map(i => {
     const e = EV[i];
     const ch = e.chapter && R[e.chapter] ? R[e.chapter].name : "National";
     const del = S.confirmDel === e.id, mine = !S.usingFallback && canEditEvent(e);
@@ -2639,7 +2681,7 @@ document.addEventListener("keydown", e => {
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.id === "scrub") { stop(); if (TURNS[+t.value]) goTo(TURNS[+t.value].last, false); return; }
+  if (t.id === "scrub") { stop(); goTo(+t.value, false); return; }
   if (!S.draft) return;
   if (t.id === "d-title") { S.draft.title = t.value; const b = $("d-save"); if (b) b.disabled = !t.value.trim() || (!isNST() && draftWarnings(S.draft).some(w => w.nst)); return; }
   if (t.id === "d-when") { S.draft.when = t.value; return; }
@@ -2704,7 +2746,7 @@ async function exportJSON() {
 
 function refreshAll(fresh) {
   rebuild();
-  if (S.jumpToId) { const i = EV.findIndex(e => e.id === S.jumpToId); if (i >= 0) S.idx = TURNS[turnIndexOf(i)].last; S.jumpToId = null; }
+  if (S.jumpToId) { const i = EV.findIndex(e => e.id === S.jumpToId); if (i >= 0) S.idx = i; S.jumpToId = null; }
   renderMap({ fresh: !!fresh }); renderChrome();
 }
 function setSettings(o) {
