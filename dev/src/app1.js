@@ -290,7 +290,7 @@ function applyEvent(prev, ev) {
       if (c.remove) continue;
       const reg = s[c.region] ? c.region : was; if (!reg) continue;
       s[reg].threats[c.tid] = { tid: c.tid, kind: c.kind || old?.kind || "other", group: c.group || old?.group || "unknown", name: c.name || old?.name || "",
-        tier: clampT(c.tier || old?.tier || 1, 1), site: c.site ?? old?.site ?? "", note: c.note ?? old?.note ?? "" };
+        tier: clampT(c.tier || old?.tier || 1, 1), site: c.site ?? old?.site ?? "", note: c.note ?? old?.note ?? "", until: c.until ?? old?.until ?? "" };
     } else if (c.type === "mark" && c.mid) {
       const was = findMark(s, c.mid), old = was ? s[was].marks[c.mid] : null;
       if (was) delete s[was].marks[c.mid];
@@ -298,17 +298,26 @@ function applyEvent(prev, ev) {
       const reg = s[c.region] ? c.region : was; if (!reg) continue;
       // A pinpoint sits at a site, at a spot on the region's map (x, y as fractions), or region-wide.
       const placed = !!c.site || c.x != null || !!c.wide, keepOld = !placed && reg === was && old;
-      s[reg].marks[c.mid] = { mid: c.mid, icon: MARKS[c.icon] ? c.icon : old?.icon || "pin", label: c.label ?? old?.label ?? "", note: c.note ?? old?.note ?? "", backstage: c.backstage ?? old?.backstage ?? "",
+      s[reg].marks[c.mid] = { mid: c.mid, icon: MARKS[c.icon] ? c.icon : old?.icon || "pin", label: c.label ?? old?.label ?? "", note: c.note ?? old?.note ?? "", backstage: c.backstage ?? old?.backstage ?? "", until: c.until ?? old?.until ?? "",
         site: placed ? c.site || "" : keepOld ? old.site : "", x: placed ? (c.site ? null : +c.x) : keepOld ? old.x : null, y: placed ? (c.site ? null : +c.y) : keepOld ? old.y : null };
     }
   }
   return s;
 }
+/* Threats and pinpoints set to fade after a year leave quietly once the story reaches a later year. */
+const expired = x => x.until !== "" && x.until != null && !isNaN(+x.until);
+function expireBefore(s, key) {
+  let out = s;
+  for (const id in s) for (const kind of ["threats", "marks"]) for (const k in s[id][kind]) {
+    if (expired(s[id][kind][k]) && +s[id][kind][k].until < key) { if (out === s) out = cloneState(s); delete out[id][kind][k]; }
+  }
+  return out;
+}
 let EV = [], STATES = [];
 function rebuild() {
   EV = visibleEvents();
   STATES = []; let s = blankState();
-  EV.forEach(e => { s = applyEvent(s, e); STATES.push(s); });
+  EV.forEach(e => { s = applyEvent(expireBefore(s, turnKey(e)), e); STATES.push(s); });
   TURNS = [];
   EV.forEach((e, i) => { const k = turnKey(e), t = TURNS[TURNS.length - 1]; if (t && t.key === k) { t.last = i; t.events.push(e); } else TURNS.push({ key: k, first: i, last: i, events: [e] }); });
   if (S.idx > EV.length - 1) S.idx = Math.max(0, EV.length - 1);

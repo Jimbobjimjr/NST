@@ -173,6 +173,24 @@ const check = (ok, what, extra) => { if (!ok) fails++; console.log((ok ? 'ok   '
   check(p.errs.length === 0, 'no page errors with hidden notes', p.errs);
   await p.close();
 
+  // 8. A threat set to fade after its year leaves without an entry removing it
+  check(post({ action: 'saveEvent', code: 'lead-1', event: { id: 'ev-g', turn: 2, title: 'Mercenaries at Braylong', when: 'Oct', chapter: 'braylong', visibility: 'public',
+    changes: [{ type: 'threat', tid: 't-dv', kind: 'lesser', group: 'dragons', tier: 2, region: 'braylong', note: 'Hired blades', until: 2 }] } }).ok, 'the lead adds a threat that fades after its year');
+  p = await open(); await signIn(p, 'lead-1');
+  check(await p.locator('#map .thr[data-tid="t-dv"]').count() === 0, 'at the end of the story the faded threat is gone');
+  await p.click('#tab-log'); await sleep(300);
+  await p.locator('.turnhead button').nth(2).click(); await sleep(600); await p.click('#tl-next'); await sleep(700); await p.click('#tl-next'); await sleep(700);
+  check(/Mercenaries at Braylong/.test(await p.locator('#tl-now').textContent()) && await p.locator('#map .thr[data-tid="t-dv"]').count() === 1, 'in its own year the threat is on the map', [await sub(p), (await p.locator('#tl-now').textContent()).slice(0, 80)]);
+  const th = await p.locator('#map .thr[data-tid="t-dv"]').boundingBox(); await p.mouse.move(th.x + th.width / 2, th.y + th.height / 2); await sleep(300);
+  check(/Fades after Year 3/.test(await p.locator('#tip').textContent()), 'the NST Team sees when it fades', await p.locator('#tip').textContent());
+  await p.mouse.move(5, 5); await p.click('#tl-next'); await sleep(700);
+  check(await p.locator('#map .thr[data-tid="t-dv"]').count() === 0, 'one step into the next year it has gone');
+  await p.locator('.ev', { hasText: 'Mercenaries at Braylong' }).locator('[data-edit]').click(); await sleep(400);
+  check(await p.locator('select[data-f="until"]').inputValue() === '2', 'the entry form shows how long it stays');
+  await p.locator('.chg', { has: p.locator('select[data-f="until"]') }).screenshot({ path: OUT + 't9-fade-setting.png' });
+  check(p.errs.length === 0, 'no page errors with fading threats', p.errs);
+  await p.close();
+
   await b.close();
   console.log(fails ? fails + ' failed' : 'all passed');
   process.exit(fails ? 1 : 0);

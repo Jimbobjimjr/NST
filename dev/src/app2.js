@@ -155,7 +155,7 @@ function tokenTip(evil, id, site) {
 function threatTip(tid) {
   const st = currentState(), id = findThreat(st, tid); if (!id) return "";
   const t = st[id].threats[tid];
-  return `<h4>${esc(threatName(t))}</h4><div class="sub">${esc(threatKind(t))} · tier ${t.tier}: ${esc(TIERS[t.tier].name)} in ${esc(R[id].name)}${t.site ? ", " + esc(siteName(id, t.site)) : ""}</div>${storyHtml(threatStory(tid))}${rulesLine(+t.tier)}`;
+  return `<h4>${esc(threatName(t))}</h4><div class="sub">${esc(threatKind(t))} · tier ${t.tier}: ${esc(TIERS[t.tier].name)} in ${esc(R[id].name)}${t.site ? ", " + esc(siteName(id, t.site)) : ""}</div>${storyHtml(threatStory(tid))}${fadeLine(t)}${rulesLine(+t.tier)}`;
 }
 /* Every threat showing in a region, for the NST Lead's hover text editor. */
 function hoverTargets(id) {
@@ -170,10 +170,11 @@ function backstageBox(text) {
   if (!text || VIS_RANK[S.layer] < 1) return "";
   return `<div class="backstage-note"><span class="lbl">Behind the curtain</span><div>${esc(text)}</div></div>`;
 }
+function fadeLine(x) { return expired(x) && VIS_RANK[S.layer] >= 1 ? `<div class="muted small">Fades after ${esc(allTurnKeys().includes(+x.until) ? turnName(+x.until) : "next year")}</div>` : ""; }
 function markTip(mid) {
   const st = currentState(), id = findMark(st, mid); if (!id) return "";
   const m = st[id].marks[mid];
-  return `<h4>${esc(markName(m))}</h4><div class="sub">${esc(MARKS[m.icon]?.name || "Pinpoint")} · ${esc(R[id].name)}${m.site ? ", " + esc(siteName(id, m.site)) : ""}</div>${m.note ? `<div>${esc(m.note)}</div>` : ""}${backstageBox(m.backstage)}${sinceLine(lastChange(c => c.type === "mark" && c.mid === mid))}`;
+  return `<h4>${esc(markName(m))}</h4><div class="sub">${esc(MARKS[m.icon]?.name || "Pinpoint")} · ${esc(R[id].name)}${m.site ? ", " + esc(siteName(id, m.site)) : ""}</div>${m.note ? `<div>${esc(m.note)}</div>` : ""}${backstageBox(m.backstage)}${fadeLine(m)}${sinceLine(lastChange(c => c.type === "mark" && c.mid === mid))}`;
 }
 function siteTip(region, sid) {
   const here = currentState()[region], s = sitesFor(region, true).find(x => x.id === sid); if (!s) return "";
@@ -880,6 +881,7 @@ function changeEditor(c, i) {
       <select data-ci="${i}" data-f="tier" aria-label="Tier">${tierOptions(c.tier || 1, 1, c.kind === "lesser" && !isNST() ? 3 : 5)}</select><select data-ci="${i}" data-f="region" aria-label="Region">${regionOptions(c.region)}</select>
       <select class="full" data-ci="${i}" data-f="site" aria-label="Site">${siteOptions(c.region, c.site || "")}</select>
       <input class="full" data-ci="${i}" data-f="note" placeholder="What it is doing" value="${esc(c.note || "")}">
+      ${untilSelect(c, i)}
       ${existing ? `<label class="ck"><input type="checkbox" data-ci="${i}" data-f="remove" ${c.remove ? "checked" : ""}> Defeated or gone (takes it off the map)</label>` : ""}`;
   }
   if (c.type === "mark") {
@@ -890,10 +892,17 @@ function changeEditor(c, i) {
       <input class="full" data-ci="${i}" data-f="label" placeholder="Name, e.g. The burned chapel" value="${esc(c.label || "")}">
       <select data-ci="${i}" data-f="site" aria-label="Where">${where}</select><button type="button" class="btn" data-placemark="${i}">Place on the map</button>
       <input class="full" data-ci="${i}" data-f="note" placeholder="What happened or what's here" value="${esc(c.note || "")}">
+      ${untilSelect(c, i)}
       <textarea class="full backstage" data-ci="${i}" data-f="backstage" placeholder="Behind the curtain (NST Team and story teams only)" aria-label="Behind the curtain notes">${esc(c.backstage || "")}</textarea>
       ${existing ? `<label class="ck"><input type="checkbox" data-ci="${i}" data-f="remove" ${c.remove ? "checked" : ""}> Clear it from the map</label>` : ""}`;
   }
   return `<div class="chg"><div class="full" style="padding-right:22px">${typeSel}</div>${body}<button type="button" class="x" data-delc="${i}" aria-label="Remove this change">×</button></div>`;
+}
+/* How long a threat or pinpoint stays: until an entry removes it, or it fades once the story moves past a year. */
+function untilSelect(c, i) {
+  const from = +(S.draft?.turn ?? openTurnKey()), keys = allTurnKeys().filter(k => k >= from), next = Math.max(...allTurnKeys(), from) + 1;
+  const opts = opt("", "Stays until an entry removes it", String(c.until ?? "")) + keys.map(k => opt(String(k), `Fades after ${turnName(k)}`, String(c.until ?? ""))).join("") + opt(String(next), "Fades after next year", String(c.until ?? ""));
+  return `<label class="lbl full" style="margin-top:4px">How long it stays<select class="full" data-ci="${i}" data-f="until">${opts}</select></label>`;
 }
 function freshChange(type, sel) {
   sel = sel || S.selected || "sudenburg";
