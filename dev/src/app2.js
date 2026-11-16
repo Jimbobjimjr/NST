@@ -298,7 +298,7 @@ function openRegion(id, animate = true) {
     if (animate && !reduced) { void rv.offsetWidth; rv.classList.add("enter"); }
     $("mapwrap").classList.add("rv-open");
     $("mapwrap").style.setProperty("--rv-ar", `${RV.view.w} / ${RV.view.h}`);
-    renderRegionView({ fresh: false }); renderSide(); syncURL();
+    renderRegionView({ fresh: false }); renderSide(); syncURL(); renderFsStory();
   };
   if (animate && !reduced && !RV.id) {
     RV.back = { ...S.vb };
@@ -312,7 +312,7 @@ function closeRegion() {
   RV.id = null; S.siteEdit = false; S.pendingSite = null; S.site = null; S.placing = null;
   $("rview").hidden = true; $("mapwrap").classList.remove("rv-open"); tip.hidden = true;
   if (RV.back) { const b = RV.back; RV.back = null; if (reduced) { S.vb = b; applyVB(); } else animateVB(b, 420); }
-  S.selected = id; renderSide(); syncURL();
+  S.selected = id; renderSide(); syncURL(); renderFsStory();
 }
 function syncURL() {
   try { const u = new URL(location.href); if (RV.id) u.searchParams.set("region", RV.id); else u.searchParams.delete("region"); history.replaceState(null, "", u); } catch (e) {}
@@ -511,6 +511,7 @@ function renderChrome() {
   ["tl-first", "tl-prev"].forEach(id => $(id).disabled = S.idx <= 0);
   $("tl-next").disabled = S.idx >= ne - 1;
   $("tl-play").disabled = ne < 2;
+  renderFsStory();
   renderWho();
   renderSide();
 }
@@ -1014,9 +1015,51 @@ async function saveSetting(key, value, done) {
   catch (e) { S.settings[key] = before; applyRegionInfo(); renderMap({ fresh: false }); renderChrome(); toast("Couldn't save: " + (e?.message || "try again")); }
 }
 
+/* ---------- Full screen: the story beside the map ----------
+   Only the narrative (year, title, when, chapter and summary), which is what players come for.
+   On the whole map it follows the whole story; in a region it follows that region's own beats. */
+S.fsStoryOff = false; try { S.fsStoryOff = localStorage.getItem("alwm.fsStory") === "off"; } catch (e) {}
+function renderFsStory() {
+  const box = $("fs-now"); if (!box) return;
+  const region = RV.id && R[RV.id] ? R[RV.id] : null;
+  const steps = region ? regionSteps(region.id) : null;
+  const at = steps ? steps.filter(i => i <= S.idx).pop() : S.idx;
+  const ev = at != null ? EV[at] : null;
+  $("fs-label").textContent = region ? `${region.name}'s story` : "The story";
+  if (!ev) box.innerHTML = `<p class="muted">${region ? "Nothing has happened here yet." : "No story events yet."}</p>`;
+  else {
+    const ch = ev.chapter && R[ev.chapter] ? R[ev.chapter].name : "National";
+    box.innerHTML = `<div class="lbl">${esc(turnName(turnKey(ev)))}</div><h3>${esc(ev.title || "Untitled event")}</h3>
+      <div class="meta small muted">${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)}${ev.example ? ` <span class="pill ex">Demo</span>` : ""}</div>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}`;
+    box.scrollTop = 0;
+  }
+  if (steps) {
+    const prev = steps.filter(i => i < S.idx).pop(), next = steps.find(i => i > S.idx);
+    $("fs-prev").disabled = prev == null; $("fs-next").disabled = next == null; $("fs-play").hidden = true;
+    $("fs-count").textContent = steps.length ? `Beat ${steps.filter(i => i <= S.idx).length} of ${steps.length}` : "";
+  } else {
+    $("fs-prev").disabled = S.idx <= 0; $("fs-next").disabled = S.idx >= EV.length - 1; $("fs-play").hidden = false;
+    $("fs-play").disabled = EV.length < 2; $("fs-play").textContent = S.playing ? "❚❚" : "▶"; $("fs-play").setAttribute("aria-label", S.playing ? "Pause" : "Play the story");
+    const t = TURNS[turnIndexOf(S.idx)];
+    $("fs-count").textContent = t ? `Entry ${S.idx - t.first + 1} of ${t.events.length} this year` : "";
+  }
+}
+function fsStep(d) {
+  stop();
+  if (RV.id) { const steps = regionSteps(RV.id), to = d > 0 ? steps.find(i => i > S.idx) : steps.filter(i => i < S.idx).pop(); if (to != null) goTo(to, false); }
+  else stepTurn(d);
+}
+$("fs-prev").onclick = () => fsStep(-1);
+$("fs-next").onclick = () => fsStep(1);
+$("fs-play").onclick = () => { S.playing ? stop() : play(); renderFsStory(); };
+function setFsStory(off) { S.fsStoryOff = off; try { localStorage.setItem("alwm.fsStory", off ? "off" : "on"); } catch (e) {} $("mapwrap").classList.toggle("story-off", off); }
+$("fs-story-hide").onclick = () => setFsStory(true);
+$("fs-story-show").onclick = () => setFsStory(false);
+
 /* ---------- Full screen ---------- */
 function setFS(on) {
   $("mapwrap").classList.toggle("fs", on);
+  $("mapwrap").classList.toggle("story-off", S.fsStoryOff); renderFsStory();
   document.body.classList.toggle("fs-on", on);
   ["fs", "rz-fs"].forEach(id => { const b = $(id); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); b.title = on ? "Exit full screen" : "Full screen"; });
 }
@@ -1251,7 +1294,7 @@ function play() {
   const tick = () => { if (!S.playing) return; if (S.idx >= EV.length - 1) { stop(); return; } stepTurn(1); playTimer = setTimeout(tick, 2600); };
   playTimer = setTimeout(tick, 900);
 }
-function stop() { S.playing = false; clearTimeout(playTimer); $("tl-play").textContent = "▶"; $("tl-play").setAttribute("aria-label", "Play the story"); }
+function stop() { S.playing = false; clearTimeout(playTimer); $("tl-play").textContent = "▶"; $("tl-play").setAttribute("aria-label", "Play the story"); const f = $("fs-play"); if (f) { f.textContent = "▶"; f.setAttribute("aria-label", "Play the story"); } }
 
 async function exportJSON() {
   const data = JSON.stringify({ exportedAt: new Date().toISOString(), events: S.usingFallback ? [OPENING] : S.events, sites: Object.values(S.sites), notes: S.notes, positions: S.positions, settings: S.settings, dispatches: S.dispatches, calendar: S.calendar, requests: S.requests }, null, 2);

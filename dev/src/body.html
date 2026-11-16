@@ -62,6 +62,17 @@
       </div>
       <div class="rv-tray" id="rv-tray"></div>
     </div>
+    <aside class="fs-story" id="fs-story" aria-label="The story">
+      <div class="fs-head"><span class="lbl" id="fs-label">The story</span><button type="button" class="btn" id="fs-story-hide">Hide</button></div>
+      <div class="fs-body" id="fs-now" aria-live="polite"></div>
+      <div class="fs-nav">
+        <button type="button" id="fs-prev" aria-label="Previous">◀</button>
+        <button type="button" id="fs-play" class="play" aria-label="Play the story">▶</button>
+        <button type="button" id="fs-next" aria-label="Next">▶︎|</button>
+        <span class="small muted" id="fs-count"></span>
+      </div>
+    </aside>
+    <button type="button" class="btn big fs-story-show" id="fs-story-show">Show the story</button>
     <div class="tooltip" id="tip" hidden></div>
   </div>
 
