@@ -400,3 +400,12 @@ textarea.backstage, .field.backstage textarea { border-style: dashed; }
 /* While a save is on its way to the story sheet, the editing buttons wait. */
 body.saving .side .pane button, body.saving .pop button { opacity: .55; cursor: progress; }
 .banner:not([hidden]) ~ .sync { top: 44px; }
+.lg-toggle { grid-column: 1 / -1; justify-self: start; background: none; border: 0; padding: 0 0 2px; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; }
+.legend.shut { padding: 5px 10px; }
+.legend.shut .row { display: none; }
+.legend.shut .lg-toggle { padding: 0; }
+/* Finger-sized buttons on touch screens. */
+@media (pointer: coarse) {
+  .map-ctrl button { min-width: 42px; height: 42px; }
+  .tl-btns button { width: 44px; height: 42px; }
+}

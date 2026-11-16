@@ -248,9 +248,16 @@ svg.addEventListener("pointerup", e => {
   const d = drag; drag = null; svg.classList.remove("panning");
   if (!d || d.mode === "pinch") return;
   if (d.mode === "city") { if (d.moved) saveLayout(); return; }
-  if (!d.moved) clickAt(d.target);
+  if (!d.moved) { clickAt(d.target); if (e.pointerType === "touch") tapTip(d.target, e); }
 });
-svg.addEventListener("pointerleave", () => { tip.hidden = true; setHover(null); });
+/* On a touch screen there is no hover, so a tap shows the same information card. It stays until the next tap or drag. */
+function tapTip(t, e) {
+  const info = targetInfo(t);
+  if (!info) { tip.hidden = true; return; }
+  showTip(info.kind === "tok" ? tokenTip(info.evil, info.region) : info.kind === "thr" ? threatTip(info.tid) : info.kind === "mark" ? markTip(info.mid) : regionTip(info.region), e);
+}
+document.addEventListener("pointerdown", e => { if (e.pointerType === "touch" && !e.target.closest("#map, #rmap")) tip.hidden = true; });
+svg.addEventListener("pointerleave", e => { if (e.pointerType === "touch") return; tip.hidden = true; setHover(null); });
 svg.addEventListener("dblclick", e => { const info = targetInfo(document.elementFromPoint(e.clientX, e.clientY) || e.target); if (info && !S.layoutMode) openRegion(info.region); });
 function targetInfo(t) {
   const tok = t.closest && t.closest(".tok");
@@ -540,7 +547,9 @@ function describeChanges(ev) {
   return parts.length ? `<p class="muted small" style="font-size:13px">${parts.map(esc).join(" · ")}</p>` : "";
 }
 function renderLegend() {
-  $("legend").innerHTML = EVIL_ORDER.map(k => `<div class="row">${swatch(k, 15, 2)} ${EVILS[k].short}</div>`).join("") +
+  let shut = matchMedia("(max-width: 900px)").matches; try { const v = localStorage.getItem("alwm.legend"); if (v) shut = v === "shut"; } catch (e) {}
+  $("legend").classList.toggle("shut", shut);
+  $("legend").innerHTML = `<button type="button" class="lg-toggle" id="lg-toggle" aria-expanded="${!shut}">Legend <span aria-hidden="true">${shut ? "▸" : "▾"}</span></button>` + EVIL_ORDER.map(k => `<div class="row">${swatch(k, 15, 2)} ${EVILS[k].short}</div>`).join("") +
     `<div class="row">${thrSwatch({ kind: "lesser", tier: 1 }, 15, true)} Lesser Evil</div><div class="row">${thrSwatch({ kind: "other", tier: 1 }, 15, true)} Other threat</div>` +
     `<div class="row"><svg width="16" height="16" viewBox="-8 -8 16 16" aria-hidden="true"><g class="swords" transform="scale(.5)"><circle r="14"/><line x1="-8" y1="-8" x2="8" y2="8"/><line x1="8" y1="-8" x2="-8" y2="8"/></g></svg> Contested</div>` +
     `<div class="row">${pinSwatch({ icon: "star" }, 15)} Pinpoint</div>` +
@@ -1124,6 +1133,7 @@ document.addEventListener("click", async e => {
   const d = t.dataset;
   // One save at a time: a second press while the story sheet is still answering would save the same thing twice.
   if (Store.busy && t.id !== "pop-close" && !t.closest(".tabs") && (t.closest(".pane") || t.closest("#pop"))) { toast("Saving… one moment", true); return; }
+  if (t.id === "lg-toggle") { try { localStorage.setItem("alwm.legend", $("legend").classList.contains("shut") ? "open" : "shut"); } catch (x) {} renderLegend(); return; }
   if (t.id === "share-btn") { openPop("share"); return; }
   if (t.id === "who-btn") { openPop("who"); return; }
   if (t.id === "pop-close") { $("pop").hidden = true; return; }
