@@ -489,7 +489,12 @@ function drawRoutes() {
 
 /* ---------- Tokens, cities, overlays ---------- */
 const SLOT = { pale: [40, -25], drowned: [88, -25], gor: [40, 25], wild: [88, 25] };
-function slotPos(regionId, evil) { const [x, y] = posOf(regionId), [dx, dy] = SLOT[evil]; return [x + dx, y + dy]; }
+/* Beyond the borders the name sits under the point, so tokens there go in a row above it: the realm's own evil in the middle. */
+function realmSlot(r, evil) {
+  const rest = EVIL_ORDER.filter(k => k !== r.home), i = evil === r.home ? -1 : rest.indexOf(evil);
+  return [i < 0 ? 0 : [50, -50, 100][i] ?? 0, -40];
+}
+function slotPos(regionId, evil) { const [x, y] = posOf(regionId), [dx, dy] = R[regionId]?.kind === "realm" ? realmSlot(R[regionId], evil) : SLOT[evil]; return [x + dx, y + dy]; }
 function shapePath(shape, r) {
   if (shape === "diamond") return `M0,${-r * 1.2}L${r * 1.1},0L0,${r * 1.2}L${-r * 1.1},0Z`;
   if (shape === "square") return `M${-r * .92},${-r * .92}H${r * .92}V${r * .92}H${-r * .92}Z`;

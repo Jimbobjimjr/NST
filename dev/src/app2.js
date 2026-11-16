@@ -504,7 +504,7 @@ function renderChrome() {
   if (!ev) { now.innerHTML = `<h2>No story events yet</h2><p class="muted">Open the Story log to record the first movement.</p>`; }
   else {
     const ch = ev.chapter && R[ev.chapter] ? R[ev.chapter].name : "National";
-    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${ev !== S.draft && TURNS.length > 1 ? esc(turnName(turnKey(ev))) + " · " : ""}${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Example</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${backstageBox(ev.backstage)}${describeChanges(ev)}`;
+    now.innerHTML = `<h2>${esc(ev.title || "Untitled event")}</h2><span class="meta">${ev !== S.draft && TURNS.length > 1 ? esc(turnName(turnKey(ev))) + " · " : ""}${esc(ev.when || "")}${ev.when ? " · " : ""}${esc(ch)} · <span class="pill vis-${ev.visibility || "public"}">${VIS[ev.visibility || "public"]}</span>${ev.example ? ` <span class="pill ex">Demo</span>` : ""}</span>${ev.summary ? `<p>${esc(ev.summary)}</p>` : ""}${backstageBox(ev.backstage)}${describeChanges(ev)}`;
   }
   $("tl-play").textContent = S.playing ? "❚❚" : "▶";
   $("tl-play").setAttribute("aria-label", S.playing ? "Pause" : "Play the story");
@@ -967,9 +967,9 @@ function renderLog() {
       ? `<button type="button" class="btn danger" data-delok="${e.id}">Delete</button><button type="button" data-delno="1">Keep</button>`
       : `${isNST() && t.events.length > 1 ? `<button type="button" data-up="${i}" aria-label="Move earlier in the year" ${i === t.first ? "disabled" : ""}>↑</button><button type="button" data-down="${i}" aria-label="Move later in the year" ${i === t.last ? "disabled" : ""}>↓</button>` : ""}<button type="button" data-edit="${e.id}">Edit</button><button type="button" data-del="${e.id}" aria-label="Delete event">✕</button>`) : "";
     return `<div class="ev ${t === ct && !(S.draft && S.draft.changes.length) ? "cur" : ""}"><div class="n">${fsteps ? fsteps.indexOf(i) + 1 : "•"}</div><div style="min-width:0"><button type="button" data-jump="${i}" style="border:0;background:none;padding:0;text-align:left" class="tt">${esc(e.title)}</button>
-      <div class="mm"><span>${esc(e.when || "")}</span><span>${esc(ch)}</span><span class="pill vis-${e.visibility || "public"}">${VIS[e.visibility || "public"]}</span>${e.example ? `<span class="pill ex">Example</span>` : ""}${e.updatedBy ? `<span>by ${esc(e.updatedBy)}</span>` : ""}</div></div><div class="acts">${acts}</div></div>`;
+      <div class="mm"><span>${esc(e.when || "")}</span><span>${esc(ch)}</span><span class="pill vis-${e.visibility || "public"}">${VIS[e.visibility || "public"]}</span>${e.example ? `<span class="pill ex">Demo</span>` : ""}${e.updatedBy ? `<span>by ${esc(e.updatedBy)}</span>` : ""}</div></div><div class="acts">${acts}</div></div>`;
   }).join(""); }).join("");
-  if (isNST() && !S.usingFallback && S.events.some(e => e.example)) html += `<div class="btnrow"><button type="button" class="btn" id="clear-ex">Remove the example events</button></div>`;
+  if (isNST() && !S.usingFallback && S.events.some(e => e.example)) html += `<div class="btnrow"><button type="button" class="btn" id="clear-ex">Remove the demo events</button></div>`;
   if (isNST() && S.usingFallback && S.loaded) html += `<div class="btnrow"><button type="button" class="btn big" id="seed-open">Save the opening positions as year 1</button></div>`;
   html += `<details class="setup" ${S.layoutMode ? "open" : ""}><summary>Map setup</summary>
     ${isNST() ? `<div class="btnrow"><button type="button" class="btn big" id="lay-toggle" aria-pressed="${S.layoutMode}">${S.layoutMode ? "Done arranging" : "Arrange places on the map"}</button><button type="button" class="btn" id="lay-reset">Reset positions</button></div>
@@ -1170,7 +1170,7 @@ document.addEventListener("click", async e => {
   if (d.delok) { S.confirmDel = null; try { await Store.deleteEvent(d.delok); toast("Event deleted"); } catch (x) { toast("Couldn't delete: " + (x?.message || "")); } return; }
   if (d.up) { await swapOrder(+d.up, +d.up - 1); return; }
   if (d.down) { await swapOrder(+d.down, +d.down + 1); return; }
-  if (t.id === "clear-ex") { for (const ev of S.events.filter(x => x.example)) { try { await Store.deleteEvent(ev.id); } catch (x) {} } toast("Example events removed"); return; }
+  if (t.id === "clear-ex") { for (const ev of S.events.filter(x => x.example)) { try { await Store.deleteEvent(ev.id); } catch (x) {} } toast("Demo events removed"); return; }
   if (t.id === "seed-open") { try { await Store.saveEvent({ ...OPENING, example: false }); toast("Opening positions saved"); } catch (x) { toast("Couldn't save"); } return; }
   if (t.id === "lay-toggle") { S.layoutMode = !S.layoutMode; renderMap({ fresh: false }); renderSide(); return; }
   if (t.id === "lay-reset") { S.positions = {}; renderMap({ fresh: false }); try { await Store.savePositions({}); toast("Positions reset"); } catch (x) {} return; }
