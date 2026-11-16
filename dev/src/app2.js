@@ -919,6 +919,7 @@ function renderLog() {
   const pane = $("pane-log");
   let html = "";
   if (S.usingFallback) html += `<div class="empty">${S.loaded ? "The shared story log is empty. The map shows the guidebook's opening positions until the first event is saved." : "Loading the shared story log…"}</div>`;
+  if (canDraft() && S.problems?.length) html += `<div class="warns">${S.problems.map(p => `<div class="hard">Row ${+p.row} of the Events tab${p.title ? ` (${esc(p.title)})` : ""} can't be read, so it is left off the map. Check its "changes" cell in the story sheet.</div>`).join("")}</div>`;
   if (canDraft()) {
     if (!S.draft) html += `<div class="btnrow"><button type="button" class="btn primary" id="d-new">Record a new event</button><span class="note">Or open a region and use its steppers.</span></div>`;
     else {
@@ -982,7 +983,7 @@ function renderLog() {
 /* ---------- Saving through the store ---------- */
 const clean = o => JSON.parse(JSON.stringify(o));
 async function saveDraft() {
-  const dr = S.draft; if (!dr || !dr.title.trim() || !canDraft()) return;
+  const dr = S.draft; if (!dr || !dr.title.trim() || !canDraft() || Store.busy) return;
   if (!isNST() && draftWarnings(dr).some(w => w.nst)) { toast("This change needs the NST Team"); return; }
   const body = clean({ turn: dr.turn ?? openTurnKey(), title: dr.title.trim(), when: dr.when.trim(), chapter: dr.chapter || "national", visibility: dr.visibility || "story", summary: dr.summary.trim(), backstage: (dr.backstage || "").trim(),
     changes: dr.changes.map(c => { const o = { ...c }; if (o.tier !== undefined) o.tier = +o.tier; for (const k of ["site", "fromSite", "toSite"]) if (o[k] === "") delete o[k]; for (const k of ["x", "y"]) if (o[k] == null) delete o[k]; return o; }),
@@ -1121,6 +1122,8 @@ function afterAuth(raise) {
 document.addEventListener("click", async e => {
   const t = e.target.closest("button"); if (!t) { if (!e.target.closest("#pop")) $("pop").hidden = true; return; }
   const d = t.dataset;
+  // One save at a time: a second press while the story sheet is still answering would save the same thing twice.
+  if (Store.busy && t.id !== "pop-close" && !t.closest(".tabs") && (t.closest(".pane") || t.closest("#pop"))) { toast("Saving… one moment", true); return; }
   if (t.id === "share-btn") { openPop("share"); return; }
   if (t.id === "who-btn") { openPop("who"); return; }
   if (t.id === "pop-close") { $("pop").hidden = true; return; }
@@ -1321,7 +1324,11 @@ function tidyWhen(w) {
 }
 function applyData(d, first) {
   const atEnd = S.idx >= EV.length - 1;
-  if (d.events) S.events = d.events.map(e => ({ ...e, when: tidyWhen(e.when), changes: typeof e.changes === "string" ? JSON.parse(e.changes || "[]") : (e.changes || []) }));
+  if (d.events) S.events = d.events.filter(e => e && e.id != null).map(e => {
+    let ch = e.changes; if (typeof ch === "string") { try { ch = JSON.parse(ch || "[]"); } catch (x) { ch = []; } }
+    return { ...e, when: tidyWhen(e.when), changes: Array.isArray(ch) ? ch.filter(c => c && typeof c === "object") : [] };
+  });
+  S.problems = d.problems || [];
   if (d.sites) S.sites = Array.isArray(d.sites) ? Object.fromEntries(d.sites.map(s => [s.id, s])) : d.sites;
   if (d.notes) S.notes = d.notes;
   if (d.positions) S.positions = d.positions;
@@ -1337,25 +1344,45 @@ function applyData(d, first) {
 function startSheets() {
   Store.mode = "sheets";
   let code = ""; try { code = localStorage.getItem("alwm.code") || ""; } catch (e) {}
-  let first = true;
-  const load = async () => {
-    const u = new URL(CONFIG.apiUrl); u.searchParams.set("action", "load"); if (code) u.searchParams.set("code", code);
-    const r = await fetch(u.toString(), { cache: "no-store" }); const j = await r.json();
-    if (j.error) throw new Error(j.error);
-    if (j.badCode && code) { code = ""; try { localStorage.removeItem("alwm.code"); } catch (e) {} toast("Your rep code is no longer valid. Sign in again."); }
+  let first = true, lastText = "", problemsSeen = "";
+  /* The last story this browser loaded is kept, so the next visit shows it at once while the story sheet answers. */
+  const KEEP = "alwm.last";
+  const keep = text => { try { localStorage.setItem(KEEP, JSON.stringify({ code, text })); } catch (e) {} };
+  const forget = () => { try { localStorage.removeItem(KEEP); } catch (e) {} };
+  const use = (j, text) => {
     const before = Store.me.role;
     Store.me = j.me || { role: "viewer", name: "", chapters: [] };
-    applyData(j, first); first = false;
+    applyData(j, first); first = false; lastText = text;
     if (before !== Store.me.role) afterAuth(false);
+    const pk = JSON.stringify(j.problems || []);
+    if (j.problems?.length && pk !== problemsSeen) toast(`${j.problems.length === 1 ? "A row" : j.problems.length + " rows"} in the story sheet can't be read. See the Story log tab.`);
+    problemsSeen = pk;
   };
-  const post = async (action, payload) => {
+  const load = async () => {
+    const u = new URL(CONFIG.apiUrl); u.searchParams.set("action", "load"); if (code) u.searchParams.set("code", code);
+    const r = await fetch(u.toString(), { cache: "no-store" }); const text = await r.text(); const j = JSON.parse(text);
+    if (j.error) throw new Error(j.error);
+    if (j.badCode && code) { code = ""; forget(); try { localStorage.removeItem("alwm.code"); } catch (e) {} toast("Your rep code is no longer valid. Sign in again."); }
+    setSync("");
+    if (text === lastText) return; // nothing new since the last look
+    use(j, text); if (!j.badCode) keep(text);
+  };
+  /* Saves go to the story sheet one at a time. */
+  let queue = Promise.resolve(), waiting = 0;
+  const send = async (action, payload) => {
     const r = await fetch(CONFIG.apiUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action, code, ...payload }) });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || "The story sheet refused that change");
     await load(); return j;
   };
+  const post = (action, payload) => {
+    waiting++; Store.busy = true; document.body.classList.add("saving"); toast("Saving…", true);
+    const run = queue.then(() => send(action, payload));
+    queue = run.catch(() => {});
+    return run.finally(() => { if (!--waiting) { Store.busy = false; document.body.classList.remove("saving"); if ($("toast").textContent.startsWith("Saving…")) $("toast").hidden = true; } });
+  };
   Store.signIn = async c => { const prev = code; code = c; try { await load(); } catch (e) { code = prev; throw e; } if (Store.me.role === "viewer") { code = prev; throw new Error("That rep code wasn't recognised"); } try { localStorage.setItem("alwm.code", code); } catch (e) {} };
-  Store.signOut = async () => { code = ""; try { localStorage.removeItem("alwm.code"); } catch (e) {} await load(); };
+  Store.signOut = async () => { code = ""; forget(); try { localStorage.removeItem("alwm.code"); } catch (e) {} await load(); };
   Store.saveEvent = async ev => (await post("saveEvent", { event: ev })).id;
   Store.deleteEvent = id => post("deleteEvent", { id });
   Store.reorder = orders => post("reorder", { orders });
@@ -1365,8 +1392,11 @@ function startSheets() {
   Store.savePositions = positions => post("savePositions", { positions });
   Store.saveSetting = (key, value) => post("saveSetting", { key, value });
   Store.act = (action, payload) => post(action, payload);
-  load().catch(e => { S.loaded = true; toast("Couldn't reach the story sheet: " + e.message); refreshAll(false); });
-  setInterval(() => { if (!document.hidden && !S.draft && !S.placing && !S.dispForm && !S.calForm && !S.reqForm && !rdrag && !drag) load().catch(() => {}); }, Math.max(15, CONFIG.pollSeconds) * 1000);
+  let kept = null; try { kept = JSON.parse(localStorage.getItem(KEEP) || "null"); } catch (e) {}
+  if (kept && kept.code === code && kept.text) { try { use(JSON.parse(kept.text), kept.text); } catch (e) { kept = null; forget(); } } else kept = null;
+  setSync(kept ? "Checking for updates…" : "Loading the story…");
+  load().catch(() => { S.loaded = true; setSync(kept ? "Showing the last story this browser loaded. The story sheet can't be reached right now." : "The story sheet can't be reached right now. Showing the opening positions."); if (!kept) refreshAll(false); });
+  setInterval(() => { if (!document.hidden && !S.draft && !S.placing && !S.dispForm && !S.calForm && !S.reqForm && !rdrag && !drag && !Store.busy) load().catch(() => {}); }, Math.max(15, CONFIG.pollSeconds) * 1000);
 }
 function startLocal() {
   Store.mode = "local";

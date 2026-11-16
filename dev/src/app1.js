@@ -174,7 +174,9 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const posOf = id => S.positions[id] || R[id].pos;
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 3000); }
+function toast(msg, stay) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); if (!stay) toast.t = setTimeout(() => t.hidden = true, 3000); }
+/* A small note on the map while the story is loading, or when the story sheet can't be reached. */
+function setSync(msg) { const el = $("sync"); el.textContent = msg || ""; el.hidden = !msg; }
 
 /* ---------- Permissions ---------- */
 const role = () => Store.me.role || "viewer";

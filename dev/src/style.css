@@ -396,3 +396,7 @@ textarea.backstage, .field.backstage textarea { border-style: dashed; }
   .mapwrap.fs:not(.story-off) > .rview { right: 0; bottom: 40%; }
   .mapwrap.fs:not(.story-off) > .legend { display: none; }
 }
+.sync { position: absolute; left: 50%; transform: translateX(-50%); top: 10px; max-width: calc(100% - 20px); background: var(--panel); color: var(--ink); border: 1px solid var(--line); padding: 4px 12px; border-radius: 999px; font-size: 13px; box-shadow: 0 2px 10px rgb(0 0 0 / .2); pointer-events: none; z-index: 3; text-align: center; }
+/* While a save is on its way to the story sheet, the editing buttons wait. */
+body.saving .side .pane button, body.saving .pop button { opacity: .55; cursor: progress; }
+.banner:not([hidden]) ~ .sync { top: 44px; }

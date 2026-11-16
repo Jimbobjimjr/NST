@@ -1,7 +1,7 @@
 // Minimal Google Apps Script fakes so Code.gs runs in Node.
 const vm = require('vm'), fs = require('fs');
 module.exports = function makeGas(path) {
-  const sheets = {};
+  const sheets = {}, cache = {};
   const mkSheet = name => {
     const rows = [];
     const sh = {
@@ -24,6 +24,7 @@ module.exports = function makeGas(path) {
   const ctx = {
     SpreadsheetApp: { getActive: () => ss },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    CacheService: { getScriptCache: () => ({ get: k => cache[k] ?? null, getAll: ks => Object.fromEntries(ks.filter(k => k in cache).map(k => [k, cache[k]])), putAll: o => Object.assign(cache, o), remove: k => { delete cache[k]; } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ s, setMimeType() { return this; } }) },
     Utilities: { getUuid: () => 'abcdef1234567890' },
     Logger: { log: m => console.log('[gas]', m) },
@@ -31,5 +32,5 @@ module.exports = function makeGas(path) {
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path, 'utf8'), ctx);
-  return { ctx, sheets, mkSheet, get: q => JSON.parse(ctx.doGet({ parameter: q }).s), post: body => JSON.parse(ctx.doPost({ postData: { contents: body } }).s) };
+  return { ctx, sheets, cache, mkSheet, get: q => JSON.parse(ctx.doGet({ parameter: q }).s), post: body => JSON.parse(ctx.doPost({ postData: { contents: body } }).s) };
 };

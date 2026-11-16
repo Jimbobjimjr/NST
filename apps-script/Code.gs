@@ -62,30 +62,42 @@ function setup() {
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
+  ROWS = {};
   try {
+    // Players (no rep code) share one ready-made copy of the story, kept for a minute, so a busy night doesn't reread the sheet for every visitor.
+    if (!p.code) {
+      var ready = cacheGet();
+      if (ready) return text(ready);
+      var fresh = JSON.stringify(load(viewer()));
+      cachePut(fresh);
+      return text(fresh);
+    }
     var me = auth(p.code);
     var out = load(me || viewer());
-    if (p.code && !me) out.badCode = true;
+    if (!me) out.badCode = true;
     return json(out);
   } catch (err) { return json({ error: String(err.message || err) }); }
 }
 
 function doPost(e) {
+  ROWS = {};
   var body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json({ ok: false, error: 'Bad request' }); }
   var me = auth(body.code);
   if (!me) return json({ ok: false, error: 'That rep code is not recognised.' });
   if (me.role === 'story' && STORY_ACTIONS.indexOf(body.action) < 0) return json({ ok: false, error: 'Story team codes can add details to places, write dispatches, calendar entries and requests, but not change the story.' });
   var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  try { lock.waitLock(20000); } catch (err) { return json({ ok: false, error: 'The story sheet is busy with another save. Try again in a moment.' }); }
   try {
     var res = act(me, body) || {};
     res.ok = true;
     return json(res);
   } catch (err) {
     return json({ ok: false, error: String(err.message || err) });
-  } finally { lock.releaseLock(); }
+  } finally { cacheClear(); lock.releaseLock(); }
 }
+/** Editing the sheet by hand also refreshes the players' copy straight away. */
+function onEdit() { cacheClear(); }
 
 function act(me, b) {
   var now = new Date().toISOString();
@@ -267,7 +279,14 @@ function act(me, b) {
 /* ---------- Reading ---------- */
 function load(me) {
   var rank = ROLE_RANK[me.role] || 0;
-  var events = readRows('Events').filter(function (r) { return r.id && (VIS_RANK[r.visibility || 'public'] || 0) <= rank; }).map(rowToEvent);
+  // A row whose `changes` cell can't be read is left out, so one bad paste never hides the whole story. Editors are told which row it is.
+  var events = [], problems = [];
+  readRows('Events').forEach(function (r, i) {
+    if (!r.id) return;
+    var ch = parseChanges(r.changes);
+    if (!ch) { problems.push({ row: i + 2, id: String(r.id), title: String(r.title || '') }); return; }
+    if ((VIS_RANK[r.visibility || 'public'] || 0) <= rank) events.push(rowToEvent(r, ch));
+  });
   // Behind-the-curtain notes on entries and pinpoints are for the story teams and the NST Team only.
   if (rank < 1) events.forEach(function (e) { delete e.backstage; e.changes.forEach(function (c) { delete c.backstage; }); });
   var sites = readRows('Sites').filter(function (r) { return r.id; }).map(function (r) {
@@ -281,16 +300,17 @@ function load(me) {
     notes[r.region] = { 'public': r['public'] || '', updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
     if (rank >= 1) notes[r.region].story = r.story || '';
   });
-  var pos = findRow('Settings', 'key', 'positions'), notice = findRow('Settings', 'key', 'notice'), regions = findRow('Settings', 'key', 'regions'), danger = findRow('Settings', 'key', 'danger');
+  var set = {}; readRows('Settings').forEach(function (r) { if (r.key !== '' && !set.hasOwnProperty(r.key)) set[r.key] = r; });
+  var pos = set.positions, notice = set.notice, regions = set.regions, danger = set.danger;
   var settings = { regions: regions ? safeJSON(regions.value, {}) : {} };
   if (notice) settings.notice = safeJSON(notice.value, null) || undefined;
   if (danger) settings.danger = safeJSON(danger.value, {});
-  var turns = findRow('Settings', 'key', 'turns');
+  var turns = set.turns;
   if (turns) settings.turns = safeJSON(turns.value, {});
-  var cal = findRow('Settings', 'key', 'calendar');
+  var cal = set.calendar;
   if (cal) settings.calendar = safeJSON(cal.value, {});
   // The NST Lead's hover text: each piece is only sent to people allowed to see the entry it belongs to.
-  var hover = findRow('Settings', 'key', 'hover');
+  var hover = set.hover;
   if (hover) { var hv = safeJSON(hover.value, {}); settings.hover = {}; for (var hk in hv) if (hv[hk] && (VIS_RANK[hv[hk].vis || 'public'] || 0) <= rank) settings.hover[hk] = hv[hk]; }
   var dispatches = readRows('Dispatches').filter(function (r) { return r.id; }).map(function (r) {
     return { id: String(r.id), chapter: r.chapter, title: r.title, body: r.body || '', when: whenStr(r.when), pinned: truthy(r.pinned), createdBy: r.createdBy || '', createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) };
@@ -304,8 +324,10 @@ function load(me) {
     return { id: String(r.id), chapter: r.chapter, affects: String(r.affects || '').split(',').filter(function (x) { return x; }), text: r.text || '', status: r.status || 'waiting', reply: r.reply || '',
       comments: safeJSON(r.comments, []), createdBy: r.createdBy || '', createdAt: iso(r.createdAt), decidedBy: r.decidedBy || '', decidedAt: iso(r.decidedAt) };
   });
-  return { me: { role: me.role, name: me.name, chapters: me.chapters }, events: events, sites: sites, notes: notes, positions: pos ? safeJSON(pos.value, {}) : {}, settings: settings,
+  var out = { me: { role: me.role, name: me.name, chapters: me.chapters }, events: events, sites: sites, notes: notes, positions: pos ? safeJSON(pos.value, {}) : {}, settings: settings,
     dispatches: dispatches, calendar: calendar, requests: requests };
+  if (rank >= 2 && problems.length) out.problems = problems;
+  return out;
 }
 function viewer() { return { role: 'viewer', name: '', chapters: [] }; }
 function auth(code) {
@@ -367,14 +389,20 @@ function sheet(name) {
   }
   return sh;
 }
+/* Each tab is read from the sheet once per request and remembered until something writes to it. */
+var ROWS = {};
 function readRows(name) {
-  var sh = sheet(name), last = sh.getLastRow();
-  if (last < 2) return [];
-  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  return sh.getRange(2, 1, last - 1, head.length).getValues().map(function (v) { var o = {}; head.forEach(function (h, i) { o[h] = v[i]; }); return o; });
+  if (ROWS[name]) return ROWS[name];
+  var sh = sheet(name), last = sh.getLastRow(), rows = [];
+  if (last >= 2) {
+    var all = sh.getRange(1, 1, last, sh.getLastColumn()).getValues(), head = all[0];
+    for (var i = 1; i < all.length; i++) { var o = {}; for (var j = 0; j < head.length; j++) o[head[j]] = all[i][j]; rows.push(o); }
+  }
+  return (ROWS[name] = rows);
 }
 function findRow(name, key, val) { var rows = readRows(name); for (var i = 0; i < rows.length; i++) if (String(rows[i][key]) === String(val)) return rows[i]; return null; }
 function writeRow(name, key, obj) {
+  delete ROWS[name];
   var sh = sheet(name), head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   var vals = head.map(function (h) { var v = obj[h]; return v === undefined || v === null ? '' : v; });
   var last = sh.getLastRow(), col = head.indexOf(key) + 1;
@@ -385,6 +413,7 @@ function writeRow(name, key, obj) {
   sh.appendRow(vals);
 }
 function deleteRow(name, key, val) {
+  delete ROWS[name];
   var sh = sheet(name), head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0], col = head.indexOf(key) + 1, last = sh.getLastRow();
   if (last < 2) return;
   var keys = sh.getRange(2, col, last - 1, 1).getValues();
@@ -394,9 +423,16 @@ function eventToRow(ev) {
   return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when ? "'" + ev.when : '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '', backstage: ev.backstage || '',
     changes: JSON.stringify(ev.changes || []), example: !!ev.example, createdAt: ev.createdAt || new Date().toISOString(), updatedBy: ev.updatedBy || '', updatedAt: ev.updatedAt || '' };
 }
-function rowToEvent(r) {
+/* The `changes` cell as a list, or null when it can't be read. An empty cell is an entry with no map changes. */
+function parseChanges(v) {
+  if (v === '' || v === undefined || v === null) return [];
+  var a; try { a = JSON.parse(v); } catch (e) { return null; }
+  if (!Array.isArray(a)) return null;
+  return a.filter(function (c) { return c && typeof c === 'object' && !Array.isArray(c); });
+}
+function rowToEvent(r, changes) {
   return { id: String(r.id), order: num(r.order), turn: r.turn === '' || r.turn === undefined ? undefined : num(r.turn), title: r.title, when: whenStr(r.when), chapter: r.chapter || 'national', visibility: r.visibility || 'public', summary: r.summary || '', backstage: r.backstage || '',
-    changes: safeJSON(r.changes, []), example: r.example === true || r.example === 'TRUE', createdAt: iso(r.createdAt), updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
+    changes: changes || parseChanges(r.changes) || [], example: r.example === true || r.example === 'TRUE', createdAt: iso(r.createdAt), updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
 }
 function log(me, action, detail) { try { sheet('Log').appendRow([new Date(), me.name, action, String(detail || '').slice(0, 200)]); } catch (e) {} }
 function safeJSON(s, d) { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } }
@@ -413,4 +449,29 @@ function whenStr(v) {
   return String(v || '').replace(/^'/, '');
 }
 function iso(v) { return v instanceof Date ? v.toISOString() : String(v || ''); }
-function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function json(o) { return text(JSON.stringify(o)); }
+function text(s) { return ContentService.createTextOutput(s).setMimeType(ContentService.MimeType.JSON); }
+
+/* ---------- The players' ready-made copy ----------
+   Kept for CACHE_SECONDS, and dropped at once when anything is saved from the map or edited in the sheet.
+   The cache holds 100 KB per entry, so a long story is stored in pieces. */
+var CACHE_SECONDS = 60, CACHE_PIECE = 90000;
+function cacheGet() {
+  try {
+    var c = CacheService.getScriptCache(), n = Number(c.get('pub:n'));
+    if (!n) return null;
+    var keys = []; for (var i = 0; i < n; i++) keys.push('pub:' + i);
+    var got = c.getAll(keys), out = '';
+    for (var k = 0; k < n; k++) { if (got[keys[k]] == null) return null; out += got[keys[k]]; }
+    return out;
+  } catch (e) { return null; }
+}
+function cachePut(s) {
+  try {
+    var parts = {}, n = 0;
+    for (var i = 0; i < s.length; i += CACHE_PIECE) parts['pub:' + n++] = s.slice(i, i + CACHE_PIECE);
+    parts['pub:n'] = String(n);
+    CacheService.getScriptCache().putAll(parts, CACHE_SECONDS);
+  } catch (e) {}
+}
+function cacheClear() { try { CacheService.getScriptCache().remove('pub:n'); } catch (e) {} }
