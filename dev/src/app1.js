@@ -491,12 +491,23 @@ function drawRoutes() {
 
 /* ---------- Tokens, cities, overlays ---------- */
 const SLOT = { pale: [40, -25], drowned: [88, -25], gor: [40, 25], wild: [88, 25] };
+/* Zoom scale: 1 with the whole map on screen, smaller as you zoom in. Everything drawn around a town is sized and spaced by it. */
+let ZS = 1;
+const at = (x, y) => `translate(${x},${y})${ZS === 1 ? "" : ` scale(${ZS.toFixed(3)})`}`;
+/* What a screen reader says for a place: its name, condition and the threats there. */
+function placeLabel(r, st) {
+  const here = st[r.id], bits = [r.name];
+  if (here.status) bits.push(STATUSES[here.status]);
+  for (const k of EVIL_ORDER) if (here.p[k]) bits.push(`${EVILS[k].short} tier ${here.p[k]}`);
+  for (const t of Object.values(here.threats)) bits.push(`${threatName(t)} tier ${t.tier}`);
+  return bits.join(", ");
+}
 /* Beyond the borders the name sits under the point, so tokens there go in a row above it: the realm's own evil in the middle. */
 function realmSlot(r, evil) {
   const rest = EVIL_ORDER.filter(k => k !== r.home), i = evil === r.home ? -1 : rest.indexOf(evil);
   return [i < 0 ? 0 : [50, -50, 100][i] ?? 0, -40];
 }
-function slotPos(regionId, evil) { const [x, y] = posOf(regionId), [dx, dy] = R[regionId]?.kind === "realm" ? realmSlot(R[regionId], evil) : SLOT[evil]; return [x + dx, y + dy]; }
+function slotPos(regionId, evil) { const [x, y] = posOf(regionId), [dx, dy] = R[regionId]?.kind === "realm" ? realmSlot(R[regionId], evil) : SLOT[evil]; return [x + dx * ZS, y + dy * ZS]; }
 function shapePath(shape, r) {
   if (shape === "diamond") return `M0,${-r * 1.2}L${r * 1.1},0L0,${r * 1.2}L${-r * 1.1},0Z`;
   if (shape === "square") return `M${-r * .92},${-r * .92}H${r * .92}V${r * .92}H${-r * .92}Z`;
@@ -528,11 +539,12 @@ function pinEl(m, parent, r = 10) {
   return g;
 }
 function drawCities() {
+  const focused = document.activeElement?.closest?.(".citygrp")?.dataset.region, st0 = currentState();
   G.cities.innerHTML = "";
   const names = $("ly-names").checked;
   REGIONS.forEach(r => {
     const [x, y] = posOf(r.id);
-    const g = el("g", { class: "citygrp", "data-region": r.id, transform: `translate(${x},${y})` }, G.cities);
+    const g = el("g", { class: "citygrp", "data-region": r.id, transform: at(x, y), tabindex: 0, role: "button", "aria-label": placeLabel(r, st0) }, G.cities);
     if (r.kind === "chapter") {
       el("circle", { class: "city-ring", r: r.major ? 17 : 14 }, g);
       if (names || !$("ly-art").checked) { const t = el("text", { class: "mlabel", y: 44, "text-anchor": "middle", "font-size": r.major ? 30 : 25 }, g); t.textContent = r.name; }
@@ -546,9 +558,11 @@ function drawCities() {
     }
     el("circle", { r: 26, fill: "transparent" }, g);
   });
+  if (focused) G.cities.querySelector(`.citygrp[data-region="${focused}"]`)?.focus({ preventScroll: true });
 }
 function drawOverlays(opts = {}) {
   const st = currentState();
+  G.cities.querySelectorAll(".citygrp").forEach(g => g.setAttribute("aria-label", placeLabel(R[g.dataset.region], st)));
   paintDanger(st); paintCalendar();
   const ev = currentEvent();
   const prev = prevForView();
@@ -576,7 +590,7 @@ function drawOverlays(opts = {}) {
     const s = st[r.id].status; if (!s || s === "holding") return;
     const [x, y] = posOf(r.id);
     const col = s === "threatened" ? "var(--warn)" : s === "besieged" ? "var(--bad)" : s === "liberated" ? "var(--ok)" : "var(--muted)";
-    el("circle", { class: "status-ring", cx: x, cy: y, r: 23, stroke: col, "stroke-dasharray": s === "threatened" ? "4 3" : null }, G.status);
+    el("circle", { class: "status-ring", cx: x, cy: y, r: 23 * ZS, stroke: col, "stroke-dasharray": s === "threatened" ? "4 3" : null }, G.status);
   });
   // trails (earlier moves up to current step)
   G.trails.innerHTML = "";
@@ -592,7 +606,7 @@ function drawOverlays(opts = {}) {
   (ev?.changes || []).forEach(c => {
     if (c.type !== "move" || S.hidden.has(c.evil) || !R[c.from] || !R[c.to] || c.from === c.to) return;
     const a = posOf(c.from), b = posOf(c.to);
-    const bb = shorten(a, b, 30);
+    const bb = shorten(a, b, 30 * ZS);
     el("path", { class: "arrow", d: arcD(a, bb, .18), stroke: `var(--${c.evil})`, "marker-end": `url(#ah-${c.evil})`, opacity: S.focus && S.focus !== c.evil ? .2 : .95 }, G.arrows);
   });
   // clashes: explicit this step (pulsing) + contested (static)
@@ -602,7 +616,7 @@ function drawOverlays(opts = {}) {
     const keys = Object.keys(st[r.id].p).filter(k => !S.hidden.has(k));
     if (!explicit.has(r.id) && keys.length < 2) return;
     const [x, y] = posOf(r.id);
-    const g = el("g", { class: explicit.has(r.id) ? "clash" : "", transform: `translate(${x - 40},${y - 30})` }, G.clash);
+    const g = el("g", { class: explicit.has(r.id) ? "clash" : "", transform: at(x - 40 * ZS, y - 30 * ZS) }, G.clash);
     if (explicit.has(r.id)) el("circle", { class: "ring", r: 17 }, g);
     swords(g, 14);
   });
@@ -613,11 +627,11 @@ function drawOverlays(opts = {}) {
     const [x, y] = posOf(r.id);
     list.slice(0, 4).forEach((t, i) => {
       const g = threatEl(t, G.threats, 12);
-      g.setAttribute("transform", `translate(${x - 38 - i * 27},${y + 30})`);
+      g.setAttribute("transform", at(x - (38 + i * 27) * ZS, y + 30 * ZS));
       g.dataset.region = r.id;
       if (fresh && !reduced && !findThreatIn(prev, t.tid)) g.classList.add("new");
     });
-    if (list.length > 4) { const t = el("text", { class: "mlabel feat", x: x - 38 - 4 * 27, y: y + 36, "text-anchor": "middle" }, G.threats); t.textContent = "+" + (list.length - 4); }
+    if (list.length > 4) { const t = el("text", { class: "mlabel feat", transform: at(x - (38 + 4 * 27) * ZS, y + 36 * ZS), "text-anchor": "middle" }, G.threats); t.textContent = "+" + (list.length - 4); }
   });
   // pinpoints: a row of small pins above the town
   G.marks.innerHTML = "";
@@ -626,11 +640,11 @@ function drawOverlays(opts = {}) {
     const [x, y] = posOf(r.id);
     list.slice(0, 3).forEach((m, i) => {
       const g = pinEl(m, G.marks, 9);
-      g.setAttribute("transform", `translate(${x - 34 - i * 22},${y - 16})`);
+      g.setAttribute("transform", at(x - (34 + i * 22) * ZS, y - 16 * ZS));
       g.dataset.region = r.id;
       if (fresh && !reduced && !findMark(prev, m.mid)) g.classList.add("new");
     });
-    if (list.length > 3) { const t = el("text", { class: "mlabel feat", x: x - 34 - 3 * 22, y: y - 22, "text-anchor": "middle" }, G.marks); t.textContent = "+" + (list.length - 3); }
+    if (list.length > 3) { const t = el("text", { class: "mlabel feat", transform: at(x - (34 + 3 * 22) * ZS, y - 22 * ZS), "text-anchor": "middle" }, G.marks); t.textContent = "+" + (list.length - 3); }
   });
   // tokens
   G.tokens.innerHTML = "";
@@ -641,7 +655,7 @@ function drawOverlays(opts = {}) {
       const key = r.id + ":" + k;
       const [x, y] = slotPos(r.id, k);
       const g = tokenEl(k, p[k], G.tokens);
-      g.setAttribute("transform", `translate(${x},${y})`);
+      g.setAttribute("transform", at(x, y));
       g.dataset.region = r.id;
       if (hiddenTok.has(key)) g.style.opacity = 0;
       if (S.focus && S.focus !== k) g.classList.add("dim");
@@ -669,7 +683,7 @@ function fly(evil, from, to, tier, done) {
     let t = Math.min(1, (now - t0) / D); const e = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     const x = (1 - e) * (1 - e) * a[0] + 2 * (1 - e) * e * mx + e * e * b[0];
     const y = (1 - e) * (1 - e) * a[1] + 2 * (1 - e) * e * my + e * e * b[1];
-    g.setAttribute("transform", `translate(${x},${y}) scale(${1 + Math.sin(e * Math.PI) * .35})`);
+    g.setAttribute("transform", `translate(${x},${y}) scale(${(1 + Math.sin(e * Math.PI) * .35) * ZS})`);
     if (t < 1) requestAnimationFrame(step); else { g.remove(); done && done(); }
   };
   requestAnimationFrame(step);

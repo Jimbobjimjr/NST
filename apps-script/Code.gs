@@ -107,6 +107,8 @@ function act(me, b) {
       var existing = ev.id ? findRow('Events', 'id', ev.id) : null;
       if (existing && !canEditChapter(me, existing.chapter)) throw new Error('That event belongs to another chapter.');
       if (!canEditChapter(me, ev.chapter)) throw new Error('You can only record events for your own chapter.');
+      // Someone else saved this entry after this person opened it: say so instead of quietly replacing their work.
+      if (existing && b.base !== undefined && !b.force && changedSince(existing.updatedAt, b.base)) throw new Error('CLASH:' + (existing.updatedBy || 'Someone'));
       checkTiers(me, ev.changes || []);
       // Reps post into the turn the NST Team has open; only the NST Team moves an entry to another turn.
       if (existing && (!isNst(me) || ev.turn === undefined || ev.turn === '')) ev.turn = existing.turn;
@@ -165,14 +167,15 @@ function act(me, b) {
     }
     case 'saveNote': {
       if (!canEditRegion(me, b.region)) throw new Error('You can only write notes for your own region.');
-      var n = b.note || {};
+      var n = b.note || {}, curN = findRow('Notes', 'region', b.region);
+      if (b.base !== undefined && !b.force && changedSince(curN ? curN.updatedAt : '', b.base)) throw new Error('CLASH:' + ((curN && curN.updatedBy) || 'Someone'));
       writeRow('Notes', 'region', { region: b.region, 'public': n['public'] || '', story: n.story || '', updatedBy: me.name, updatedAt: now });
       log(me, 'notes', b.region);
       return {};
     }
     case 'savePositions': {
       if (!isNst(me)) throw new Error('Only the NST Team can rearrange the main map.');
-      writeRow('Settings', 'key', { key: 'positions', value: JSON.stringify(b.positions || {}) });
+      putSetting('positions', JSON.stringify(b.positions || {}));
       log(me, 'layout', '');
       return {};
     }
@@ -184,7 +187,7 @@ function act(me, b) {
       else if (b.key === 'calendar') { if (!isNst(me)) throw new Error('Only the NST Team can change the calendar link.'); }
       else if (b.key === 'hover') { if (me.role !== 'lead') throw new Error('Only the NST Lead can change the hover text.'); }
       else throw new Error('Unknown setting ' + b.key);
-      writeRow('Settings', 'key', { key: b.key, value: JSON.stringify(b.value === undefined ? null : b.value) });
+      putSetting(b.key, JSON.stringify(b.value === undefined ? null : b.value));
       log(me, 'setting', b.key);
       return {};
     }
@@ -300,7 +303,7 @@ function load(me) {
     notes[r.region] = { 'public': r['public'] || '', updatedBy: r.updatedBy || '', updatedAt: iso(r.updatedAt) };
     if (rank >= 1) notes[r.region].story = r.story || '';
   });
-  var set = {}; readRows('Settings').forEach(function (r) { if (r.key !== '' && !set.hasOwnProperty(r.key)) set[r.key] = r; });
+  var set = settingsMap();
   var pos = set.positions, notice = set.notice, regions = set.regions, danger = set.danger;
   var settings = { regions: regions ? safeJSON(regions.value, {}) : {} };
   if (notice) settings.notice = safeJSON(notice.value, null) || undefined;
@@ -368,7 +371,7 @@ function checkTiers(me, changes) {
 function turnKeyOf(r) { return r.turn === '' || r.turn === undefined || r.turn === null ? num(r.order) : num(r.turn); }
 function openTurn() {
   var m = 0; readRows('Events').forEach(function (r) { if (r.id) m = Math.max(m, turnKeyOf(r)); });
-  var t = findRow('Settings', 'key', 'turns'), open = t ? safeJSON(t.value, {}).open : undefined;
+  var t = settingsMap().turns, open = t ? safeJSON(t.value, {}).open : undefined;
   return open === undefined || open === null ? m : Math.max(m, num(open));
 }
 function nextOrder() { var m = -1; readRows('Events').forEach(function (r) { m = Math.max(m, num(r.order)); }); return m + 1; }
@@ -418,6 +421,34 @@ function deleteRow(name, key, val) {
   if (last < 2) return;
   var keys = sh.getRange(2, col, last - 1, 1).getValues();
   for (var i = keys.length - 1; i >= 0; i--) if (String(keys[i][0]) === String(val)) sh.deleteRow(i + 2);
+}
+/* A sheet cell holds 50,000 characters. A longer setting (the hover text grows with the story) carries on in extra rows named key#1, key#2 and so on.
+   Each extra piece starts with "~" so the sheet always treats it as plain text. */
+var SETTING_PIECE = 40000;
+function settingsMap() {
+  var raw = {}, set = {};
+  readRows('Settings').forEach(function (r) { if (r.key !== '' && !raw.hasOwnProperty(r.key)) raw[r.key] = r; });
+  for (var k in raw) {
+    if (String(k).indexOf('#') >= 0) continue;
+    var v = String(raw[k].value);
+    for (var i = 1; raw[k + '#' + i]; i++) v += String(raw[k + '#' + i].value).slice(1);
+    set[k] = { key: k, value: v };
+  }
+  return set;
+}
+function putSetting(key, text) {
+  var parts = [text.slice(0, SETTING_PIECE)];
+  for (var i = SETTING_PIECE; i < text.length; i += SETTING_PIECE) parts.push('~' + text.slice(i, i + SETTING_PIECE));
+  parts.forEach(function (p, n) { writeRow('Settings', 'key', { key: n ? key + '#' + n : key, value: p }); });
+  for (var x = parts.length; findRow('Settings', 'key', key + '#' + x); x++) deleteRow('Settings', 'key', key + '#' + x);
+}
+/* Has a row been saved by someone else since `base`, the save time this person's copy carried? */
+function changedSince(current, base) {
+  var a = iso(current), b = String(base || '');
+  if (a === b) return false;
+  var x = Date.parse(a), y = Date.parse(b);
+  if (isNaN(x) || isNaN(y)) return true;
+  return Math.abs(x - y) > 1000;
 }
 function eventToRow(ev) {
   return { id: ev.id, order: num(ev.order), turn: ev.turn === undefined || ev.turn === null || ev.turn === '' ? '' : num(ev.turn), title: ev.title || '', when: ev.when ? "'" + ev.when : '', chapter: ev.chapter || 'national', visibility: ev.visibility || 'story', summary: ev.summary || '', backstage: ev.backstage || '',

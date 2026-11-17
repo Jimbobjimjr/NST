@@ -409,3 +409,9 @@ body.saving .side .pane button, body.saving .pop button { opacity: .55; cursor: 
   .map-ctrl button { min-width: 42px; height: 42px; }
   .tl-btns button { width: 44px; height: 42px; }
 }
+.citygrp { outline: none; }
+.citygrp:focus-visible > circle:last-of-type { stroke: var(--focus); stroke-width: 3; fill: color-mix(in srgb, var(--focus) 18%, transparent); }
+/* Wide screens: the map is tall and narrow, so the panel beside it takes the width the map can't use. A region's own map is wide, so it gets the room back. */
+@media (min-width: 901px) {
+  .app:not(:has(.mapwrap.rv-open)) { grid-template-columns: minmax(0, 1fr) clamp(420px, calc(100vw - (100vh - 120px) * .7 - 60px), 640px); }
+}

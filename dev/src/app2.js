@@ -192,7 +192,22 @@ function pinSwatch(m, size = 16) {
 }
 
 /* ---------- Pan, zoom, drag on the whole map ---------- */
-function applyVB() { const v = S.vb; svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`); }
+function applyVB() { const v = S.vb; svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`); touchMode(); rescale(); }
+/* Zooming in: tokens, town rings and names grow far less than the map art, so they stay readable and stop crowding the towns. */
+let rescaleQueued = false;
+function rescale() {
+  const z = S.vb.w / W, want = z >= 1 ? 1 : Math.pow(z, .65);
+  if (Math.abs(want - ZS) < .02 * ZS || rescaleQueued) return;
+  rescaleQueued = true;
+  requestAnimationFrame(() => { rescaleQueued = false; const z2 = S.vb.w / W; ZS = z2 >= 1 ? 1 : Math.pow(z2, .65); if (drag && drag.mode === "city") return; G.cities.querySelectorAll(".citygrp").forEach(g => g.setAttribute("transform", at(...posOf(g.dataset.region)))); drawOverlays({ fresh: false }); });
+}
+/* Phones: while a map shows whole, an up or down swipe scrolls the page past it. Once zoomed in, or in full screen, a finger moves the map instead. */
+const narrow = matchMedia("(max-width: 900px)");
+function touchMode() {
+  const page = narrow.matches && !$("mapwrap").classList.contains("fs");
+  svg.style.touchAction = page && S.vb.w >= W * .98 ? "pan-y" : "none";
+  if (RV.id && RV.vb) rsvg.style.touchAction = page && RV.vb.w >= RV.view.w * .98 ? "pan-y" : "none";
+}
 function svgPoint(evt, s = svg) { const pt = s.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY; return pt.matrixTransform(s.getScreenCTM().inverse()); }
 function zoom(f, cx, cy) {
   const v = S.vb; const nw = Math.max(260, Math.min(W * 1.15, v.w * f)); const k = nw / v.w;
@@ -258,6 +273,12 @@ function tapTip(t, e) {
 }
 document.addEventListener("pointerdown", e => { if (e.pointerType === "touch" && !e.target.closest("#map, #rmap")) tip.hidden = true; });
 svg.addEventListener("pointerleave", e => { if (e.pointerType === "touch") return; tip.hidden = true; setHover(null); });
+/* Keyboard: Tab moves from place to place, showing the same card as a mouse hover. Enter chooses the place. */
+svg.addEventListener("focusin", e => {
+  const g = e.target.closest(".citygrp"); if (!g || !g.matches(":focus-visible")) return;
+  const b = g.getBoundingClientRect(); setHover(g.dataset.region); showTip(regionTip(g.dataset.region), { clientX: b.left + b.width / 2, clientY: b.top + b.height / 2 });
+});
+svg.addEventListener("focusout", () => { tip.hidden = true; setHover(null); });
 svg.addEventListener("dblclick", e => { const info = targetInfo(document.elementFromPoint(e.clientX, e.clientY) || e.target); if (info && !S.layoutMode) openRegion(info.region); });
 function targetInfo(t) {
   const tok = t.closest && t.closest(".tok");
@@ -324,7 +345,7 @@ function closeRegion() {
 function syncURL() {
   try { const u = new URL(location.href); if (RV.id) u.searchParams.set("region", RV.id); else u.searchParams.delete("region"); history.replaceState(null, "", u); } catch (e) {}
 }
-function applyRVB() { const v = RV.vb; rsvg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`); }
+function applyRVB() { const v = RV.vb; rsvg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`); touchMode(); }
 function rzoom(f, cx, cy) {
   const v = RV.vb, base = RV.view; const nw = Math.max(base.w / 7, Math.min(base.w * 1.2, v.w * f)); const k = nw / v.w;
   cx = cx ?? v.x + v.w / 2; cy = cy ?? v.y + v.h / 2;
@@ -547,7 +568,7 @@ function describeChanges(ev) {
   return parts.length ? `<p class="muted small" style="font-size:13px">${parts.map(esc).join(" · ")}</p>` : "";
 }
 function renderLegend() {
-  let shut = matchMedia("(max-width: 900px)").matches; try { const v = localStorage.getItem("alwm.legend"); if (v) shut = v === "shut"; } catch (e) {}
+  let shut = true; try { shut = localStorage.getItem("alwm.legend") !== "open"; } catch (e) {} // closed until asked for, so it never hides part of the map
   $("legend").classList.toggle("shut", shut);
   $("legend").innerHTML = `<button type="button" class="lg-toggle" id="lg-toggle" aria-expanded="${!shut}">Legend <span aria-hidden="true">${shut ? "▸" : "▾"}</span></button>` + EVIL_ORDER.map(k => `<div class="row">${swatch(k, 15, 2)} ${EVILS[k].short}</div>`).join("") +
     `<div class="row">${thrSwatch({ kind: "lesser", tier: 1 }, 15, true)} Lesser Evil</div><div class="row">${thrSwatch({ kind: "other", tier: 1 }, 15, true)} Other threat</div>` +
@@ -947,6 +968,7 @@ function renderLog() {
         ${dr.changes.map(changeEditor).join("") || `<div class="note">No changes yet. Add one below, or open a region on the map and use its steppers.</div>`}
         <div class="btnrow"><button type="button" class="btn" data-addc="set">+ Presence</button><button type="button" class="btn" data-addc="move">+ Advance</button><button type="button" class="btn" data-addc="clash">+ Clash</button><button type="button" class="btn" data-addc="status">+ Condition</button><button type="button" class="btn" data-addc="threat">+ Lesser evil or threat</button><button type="button" class="btn" data-addc="mark">+ Pinpoint</button></div>
         ${warns.length ? `<div class="warns">${warns.map(w => `<div class="${w.hard ? "hard" : ""}">${esc(w.t)}</div>`).join("")}</div>` : ""}
+        ${dr.clash ? `<div class="warns"><div class="hard">${esc(dr.clash)} saved a change to this entry while you were editing it. To keep theirs, press Discard and open the entry again. To replace it with yours, press the button below.</div></div><div class="btnrow"><button type="button" class="btn" id="d-force">Replace their version with mine</button></div>` : ""}
         ${blocked ? `<div class="note">This needs the NST Team. Discard it, or ask Brett or Andrew to record it.</div>` : ""}
         <div class="btnrow"><button type="button" class="btn primary" id="d-save" ${dr.title.trim() && !blocked ? "" : "disabled"}>${dr.id ? "Save changes" : "Add to the story"}</button><button type="button" class="btn big" id="d-cancel">Discard</button></div></div>`;
     }
@@ -991,21 +1013,27 @@ function renderLog() {
 
 /* ---------- Saving through the store ---------- */
 const clean = o => JSON.parse(JSON.stringify(o));
-async function saveDraft() {
+async function saveDraft(force) {
   const dr = S.draft; if (!dr || !dr.title.trim() || !canDraft() || Store.busy) return;
   if (!isNST() && draftWarnings(dr).some(w => w.nst)) { toast("This change needs the NST Team"); return; }
   const body = clean({ turn: dr.turn ?? openTurnKey(), title: dr.title.trim(), when: dr.when.trim(), chapter: dr.chapter || "national", visibility: dr.visibility || "story", summary: dr.summary.trim(), backstage: (dr.backstage || "").trim(),
     changes: dr.changes.map(c => { const o = { ...c }; if (o.tier !== undefined) o.tier = +o.tier; for (const k of ["site", "fromSite", "toSite"]) if (o[k] === "") delete o[k]; for (const k of ["x", "y"]) if (o[k] == null) delete o[k]; return o; }),
     updatedBy: Store.me.name || "", updatedAt: new Date().toISOString() });
   try {
-    if (dr.id) { await Store.saveEvent({ id: dr.id, ...body }); toast("Event updated"); }
+    if (dr.id) { await Store.saveEvent({ id: dr.id, ...body }, { base: dr.base, force: !!force }); toast("Event updated"); }
     else {
       body.order = S.events.reduce((m, e) => Math.max(m, e.order ?? 0), -1) + 1; body.example = false; body.createdAt = body.updatedAt;
       S.jumpToId = await Store.saveEvent(body); toast("Added to the story");
     }
     S.draft = null; refreshAll(false);
-  } catch (e) { toast("Couldn't save: " + (e?.message || "try again")); }
+  } catch (e) {
+    const who = clashOf(e);
+    if (who) { dr.clash = who; renderSide(); toast(`${who} changed this entry while you were editing`); }
+    else toast("Couldn't save: " + (e?.message || "try again"));
+  }
 }
+/* The story sheet answers "CLASH:name" when someone else saved the same thing first. */
+function clashOf(e) { const m = String(e?.message || "").match(/^CLASH:(.*)$/); return m ? m[1] || "Someone" : ""; }
 async function swapOrder(i, j) {
   const a = EV[i], b = EV[j]; if (!a || !b) return;
   const all = S.events.slice().sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
@@ -1071,6 +1099,7 @@ function setFS(on) {
   $("mapwrap").classList.toggle("fs", on);
   $("mapwrap").classList.toggle("story-off", S.fsStoryOff); renderFsStory();
   document.body.classList.toggle("fs-on", on);
+  touchMode();
   ["fs", "rz-fs"].forEach(id => { const b = $(id); b.setAttribute("aria-pressed", String(on)); b.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); b.title = on ? "Exit full screen" : "Full screen"; });
 }
 function toggleFS() {
@@ -1205,7 +1234,9 @@ document.addEventListener("click", async e => {
   }
   if (t.id === "n-save") {
     const note = { public: $("n-pub").value.trim(), story: $("n-story").value.trim(), updatedBy: Store.me.name || "", updatedAt: new Date().toISOString() };
-    try { await Store.saveNote(S.selected, note); S.notes[S.selected] = note; toast("Notes saved"); renderSide(); } catch (x) { toast("Couldn't save the notes: " + (x?.message || "")); }
+    const region = S.selected, force = S.noteForce === region; S.noteForce = null;
+    try { await Store.saveNote(region, note, { base: S.notes[region]?.updatedAt || "", force }); if (Store.mode === "local") S.notes[region] = note; toast("Notes saved"); renderSide(); }
+    catch (x) { const who = clashOf(x); if (who) { S.noteForce = region; toast(`${who} changed these notes while you were writing. Press Save notes again to replace theirs.`, true); } else toast("Couldn't save the notes: " + (x?.message || "")); }
     return;
   }
   if (t.id === "turn-open" || t.id === "turn-rename") {
@@ -1218,9 +1249,10 @@ document.addEventListener("click", async e => {
   if (t.id === "d-new") { S.draft = newDraft(); S.idx = EV.length - 1; refreshAll(false); return; }
   if (t.id === "d-cancel") { S.draft = null; refreshAll(false); return; }
   if (t.id === "d-save") { await saveDraft(); return; }
+  if (t.id === "d-force") { await saveDraft(true); return; }
   if (d.addc) { const dr = ensureDraft(); dr.changes.push(freshChange(d.addc)); claimChapter(dr, S.selected); refreshAll(false); return; }
   if (d.delc !== undefined) { S.draft.changes.splice(+d.delc, 1); refreshAll(false); return; }
-  if (d.edit) { const ev = S.events.find(x => x.id === d.edit); if (ev) { S.draft = clean({ id: ev.id, title: ev.title || "", when: ev.when || "", chapter: ev.chapter || "national", visibility: ev.visibility || "story", summary: ev.summary || "", backstage: ev.backstage || "", changes: ev.changes || [], turn: turnKey(ev) }); S.tab = "log"; refreshAll(false); } return; }
+  if (d.edit) { const ev = S.events.find(x => x.id === d.edit); if (ev) { S.draft = clean({ id: ev.id, title: ev.title || "", when: ev.when || "", chapter: ev.chapter || "national", visibility: ev.visibility || "story", summary: ev.summary || "", backstage: ev.backstage || "", changes: ev.changes || [], turn: turnKey(ev), base: ev.updatedAt || "" }); S.tab = "log"; refreshAll(false); } return; }
   if (d.del) { S.confirmDel = d.del; renderLog(); return; }
   if (d.delno) { S.confirmDel = null; renderLog(); return; }
   if (d.delok) { S.confirmDel = null; try { await Store.deleteEvent(d.delok); toast("Event deleted"); } catch (x) { toast("Couldn't delete: " + (x?.message || "")); } return; }
@@ -1246,6 +1278,8 @@ document.addEventListener("keydown", e => {
     if (RV.id) { closeRegion(); return; }
   }
   if (e.target.closest("input, textarea, select")) return;
+  const town = e.target.closest?.(".citygrp");
+  if (town && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); if (e.shiftKey || S.selected === town.dataset.region) openRegion(town.dataset.region); else { selectRegion(town.dataset.region); toast(`${R[town.dataset.region].name} selected. Press Enter again to open its map.`); } return; }
   if (e.key === "ArrowRight") { stop(); stepTurn(1); }
   if (e.key === "ArrowLeft") { stop(); stepTurn(-1); }
 });
@@ -1393,12 +1427,12 @@ function startSheets() {
   };
   Store.signIn = async c => { const prev = code; code = c; try { await load(); } catch (e) { code = prev; throw e; } if (Store.me.role === "viewer") { code = prev; throw new Error("That rep code wasn't recognised"); } try { localStorage.setItem("alwm.code", code); } catch (e) {} };
   Store.signOut = async () => { code = ""; forget(); try { localStorage.removeItem("alwm.code"); } catch (e) {} await load(); };
-  Store.saveEvent = async ev => (await post("saveEvent", { event: ev })).id;
+  Store.saveEvent = async (ev, o) => (await post("saveEvent", { event: ev, ...(o || {}) })).id;
   Store.deleteEvent = id => post("deleteEvent", { id });
   Store.reorder = orders => post("reorder", { orders });
   Store.saveSite = site => post("saveSite", { site });
   Store.deleteSite = id => post("deleteSite", { id });
-  Store.saveNote = (region, note) => post("saveNote", { region, note });
+  Store.saveNote = (region, note, o) => post("saveNote", { region, note, ...(o || {}) });
   Store.savePositions = positions => post("savePositions", { positions });
   Store.saveSetting = (key, value) => post("saveSetting", { key, value });
   Store.act = (action, payload) => post(action, payload);
@@ -1406,7 +1440,13 @@ function startSheets() {
   if (kept && kept.code === code && kept.text) { try { use(JSON.parse(kept.text), kept.text); } catch (e) { kept = null; forget(); } } else kept = null;
   setSync(kept ? "Checking for updates…" : "Loading the story…");
   load().catch(() => { S.loaded = true; setSync(kept ? "Showing the last story this browser loaded. The story sheet can't be reached right now." : "The story sheet can't be reached right now. Showing the opening positions."); if (!kept) refreshAll(false); });
-  setInterval(() => { if (!document.hidden && !S.draft && !S.placing && !S.dispForm && !S.calForm && !S.reqForm && !rdrag && !drag && !Store.busy) load().catch(() => {}); }, Math.max(15, CONFIG.pollSeconds) * 1000);
+  /* Checks for news. It waits while someone is typing, so a check never wipes half-written text. After two failed checks in a row the map says so. */
+  let misses = 0, lastOk = new Date();
+  const typing = () => !!document.activeElement?.closest?.(".side textarea, .side input:not([type=checkbox]):not([type=range]), #pop input, #pop textarea");
+  setInterval(() => {
+    if (document.hidden || S.draft || S.placing || S.dispForm || S.calForm || S.reqForm || rdrag || drag || Store.busy || typing()) return;
+    load().then(() => { misses = 0; lastOk = new Date(); }, () => { if (++misses >= 2) setSync(`The story sheet can't be reached. Showing the story as it was at ${lastOk.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`); });
+  }, Math.max(15, CONFIG.pollSeconds) * 1000);
 }
 function startLocal() {
   Store.mode = "local";
